@@ -9,6 +9,7 @@
  +--------------------------------------------------------------------+
  */
 
+use Civi\Api4\FinancialTrxn;
 use Civi\Token\TokenProcessor;
 use Civi\Api4\LocBlock;
 use Civi\Api4\Email;
@@ -304,6 +305,9 @@ Czech Republic<br />', $html);
 The End
 Czech Republic
 ', $text);
+    $financialTrxn = FinancialTrxn::get()->addWhere('is_payment', '=', TRUE)->execute()->first();
+    $text = $this->renderText(['financial_trxnId' => $financialTrxn['id']], '{financial_trxn.total_amount}', [], FALSE);
+    $this->assertEquals('$100.00', $text);
   }
 
   /**
@@ -364,11 +368,11 @@ Czech Republic
     $variants = [
       [
         'string' => '{contact.individual_prefix}{ }{contact.first_name}{ }{contact.middle_name}{ }{contact.last_name}{ }{contact.individual_suffix}',
-        'expected' => 'Mr. Anthony  Anderson II',
+        'expected' => 'Mr. Anthony Anderson II',
       ],
       [
         'string' => '{contact.prefix_id:label}{ }{contact.first_name}{ }{contact.middle_name}{ }{contact.last_name}{ }{contact.suffix_id:label}',
-        'expected' => 'Mr. Anthony  Anderson II',
+        'expected' => 'Mr. Anthony Anderson II',
       ],
     ];
     $tokenProcessor = new TokenProcessor(\Civi::dispatcher(), [
@@ -569,6 +573,7 @@ contribution_recur.payment_instrument_id:name :Check
    *
    */
   public function testMembershipTokenConsistency(): void {
+    CRM_Utils_Time::setTime('2007-01-22 15:00:00');
     $this->createLoggedInUser();
     $this->restoreMembershipTypes();
     $this->createCustomGroupWithFieldOfType(['extends' => 'Membership']);
@@ -582,7 +587,6 @@ contribution_recur.payment_instrument_id:name :Check
     $tokenString .= "\n{membership." . $this->getCustomFieldName('text') . '}';
     // Now compare with scheduled reminder
     $mut = new CiviMailUtils($this);
-    CRM_Utils_Time::setTime('2007-01-22 15:00:00');
     $this->callAPISuccess('ActionSchedule', 'create', [
       'title' => 'job',
       'subject' => 'job',
@@ -608,6 +612,8 @@ contribution_recur.payment_instrument_id:name :Check
     $tokens = $tokenProcessor->listTokens();
     // Add in custom tokens as token processor supports these.
     $expectedTokens = array_merge($expectedTokens, $this->getTokensAdvertisedByTokenProcessorButNotLegacy());
+    // Token 'fee' is deprecated & no longer advertised.
+    unset($expectedTokens['{membership.fee}']);
     $this->assertEquals(array_merge($expectedTokens, $this->getDomainTokens(), $this->getRecurEntityTokens('membership')), $tokens);
     $tokenProcessor->addMessage('html', $tokenString, 'text/plain');
     $tokenProcessor->addRow(['membershipId' => $this->getMembershipID()]);
@@ -673,7 +679,9 @@ contribution_recur.payment_instrument_id:name :Check
       '{membership.start_date}' => 'Membership Start Date',
       '{membership.join_date}' => 'Member Since',
       '{membership.end_date}' => 'Membership Expiration Date',
+      '{membership.membership_type_id.minimum_fee}' => 'Minimum Fee',
       '{membership.fee}' => 'Membership Fee',
+      '{membership.status_id.is_new}' => 'Is new membership status',
     ];
   }
 
@@ -756,15 +764,17 @@ event.fee_label :Event fees
    */
   protected function getExpectedMembershipTokenOutput(): string {
     return '
-Expired
+New
 General
 1
-Expired
+New
 General
 January 21st, 2007
 January 21st, 2007
 December 21st, 2007
-100.00';
+$100.00
+$100.00
+1';
   }
 
   /**
@@ -1187,7 +1197,7 @@ Attendees will need to install the [TeleFoo](http://telefoo.example.com) app.';
    * @return string
    */
   protected function renderText(array $rowContext, string $text, array $context = [], $isHtml = TRUE): string {
-    $context['schema'] = $context['schema'] ?? [];
+    $context['schema'] ??= [];
     foreach (array_keys($rowContext) as $key) {
       $context['schema'][] = $key;
     }

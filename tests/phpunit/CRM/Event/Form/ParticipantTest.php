@@ -1,5 +1,6 @@
 <?php
 
+declare(strict_types = 1);
 use Civi\Api4\Address;
 use Civi\Api4\Event;
 use Civi\Api4\LineItem;
@@ -229,7 +230,11 @@ United States<br />',
     $this->assertEquals('Offline Registration for Event: Annual CiviCRM meet by: ', $participant['participant_source']);
     $contribution = $this->callAPISuccessGetSingle('Contribution', []);
     $this->assertEquals(20, $contribution['total_amount']);
+    $this->assertEquals(['Family Deal - 1'], $contribution['amount_level']);
     $this->assertEquals('Debit Card', $contribution['payment_instrument']);
+    $this->assertNotEmpty($contribution['receipt_date']);
+    // Just check it's not something weird like 1970 without getting into flakey-precise.
+    $this->assertGreaterThan(strtotime('yesterday'), strtotime($contribution['receipt_date']));
     $lineItem = $this->callAPISuccessGetSingle('LineItem', []);
     $expected = [
       'contribution_id' => $contribution['id'],
@@ -263,14 +268,9 @@ United States<br />',
     $this->setCurrencySeparators($thousandSeparator);
     $paymentProcessorID = $this->processorCreate(['is_test' => 0]);
     $_REQUEST['mode'] = 'live';
-    Civi\Payment\System::singleton()->getById($paymentProcessorID)->setDoDirectPaymentResult(['payment_status_id' => 'failed']);
-    try {
-      $this->submitForm(['is_monetary' => 1, 'financial_type_id' => 1], $this->getSubmitParamsForCreditCardPayment($paymentProcessorID), TRUE);
-    }
-    catch (CRM_Core_Exception_PrematureExitException $e) {
-      return;
-    }
-    $this->fail('should have hit premature exit');
+    \Civi\Payment\System::singleton()->getById($paymentProcessorID)->setDoDirectPaymentResult(['payment_status_id' => 'failed']);
+    $this->submitForm(['is_monetary' => 1, 'financial_type_id' => 1], $this->getSubmitParamsForCreditCardPayment($paymentProcessorID), TRUE);
+    $this->assertPrematureExit();
   }
 
   /**
@@ -302,8 +302,7 @@ United States<br />',
       'is_default' => 1,
     ]);
     $oldMsg = $result['values'][0]['msg_html'];
-    $pos = strpos($oldMsg, 'Please print this confirmation');
-    $newMsg = substr_replace($oldMsg, '<p>Test event type - {event.event_type_id}</p>', $pos, 0);
+    $newMsg = substr_replace($oldMsg, '<p>Test event type - {event.event_type_id}</p>', 0, 0);
     $this->callAPISuccess('MessageTemplate', 'create', [
       'id' => $result['id'],
       'msg_html' => $newMsg,
@@ -389,6 +388,7 @@ London,',
       $event = $this->eventCreateUnpaid($eventParams);
     }
     $submittedValues['event_id'] = $event['id'];
+    $submittedValues['receipt_text'] = 'Contact the Development Department if you need to make any changes to your registration.';
     return $this->getTestForm('CRM_Event_Form_Participant', $submittedValues, ['cid' => $submittedValues['contact_id']])->processForm(FormWrapper::BUILT);
   }
 

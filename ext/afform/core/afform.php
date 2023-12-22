@@ -221,7 +221,7 @@ function afform_civicrm_pageRun(&$page) {
     // If Afform specifies a contact type, lookup the contact and compare
     if (!empty($afform['summary_contact_type'])) {
       // Contact.get only needs to happen once
-      $contact = $contact ?? civicrm_api4('Contact', 'get', [
+      $contact ??= civicrm_api4('Contact', 'get', [
         'select' => ['contact_type', 'contact_sub_type'],
         'where' => [['id', '=', $cid]],
       ])->first();
@@ -586,7 +586,6 @@ function afform_civicrm_referenceCounts($dao, &$counts) {
     try {
       $displays = civicrm_api4('SearchDisplay', 'get', [
         'where' => [['saved_search_id', '=', $dao->id]],
-        'select' => 'name',
       ], ['name']);
       foreach ($displays as $displayName) {
         $clauses[] = ['search_displays', 'CONTAINS', $dao->name . '.' . $displayName];
@@ -645,4 +644,17 @@ function afform_shortcode_content($content, $atts, $args, $context) {
     }
   }
   return $content;
+}
+
+/**
+ * Implements hook_civicrm_searchKitTasks().
+ *
+ */
+function afform_civicrm_searchKitTasks(array &$tasks, bool $checkPermissions, ?int $userID) {
+  $tasks['AfformSubmission']['process'] = [
+    'module' => 'afSearchTasks',
+    'title' => E::ts('Process Submissions'),
+    'icon' => 'fa-check-square-o',
+    'uiDialog' => ['templateUrl' => '~/afSearchTasks/afformSubmissionProcessTask.html'],
+  ];
 }

@@ -539,7 +539,7 @@ class CRM_Member_Form_MembershipRenewal extends CRM_Member_Form {
 
       $paymentParams['contactID'] = $this->_contributorContactID;
 
-      CRM_Core_Payment_Form::mapParams($this->_bltID, $this->_params, $paymentParams, TRUE);
+      CRM_Core_Payment_Form::mapParams(NULL, $this->_params, $paymentParams, TRUE);
 
       if (!empty($this->_params['auto_renew'])) {
 
@@ -700,6 +700,8 @@ class CRM_Member_Form_MembershipRenewal extends CRM_Member_Form {
       }
     }
 
+    // This is being replaced by userEnteredText.
+    $this->assign('receipt_text', $this->getSubmittedValue('receipt_text'));
     [$this->isMailSent] = CRM_Core_BAO_MessageTemplate::sendTemplate(
       [
         'workflow' => 'membership_offline_receipt',
@@ -710,7 +712,7 @@ class CRM_Member_Form_MembershipRenewal extends CRM_Member_Form {
         'PDFFilename' => ts('receipt') . '.pdf',
         'isEmailPdf' => Civi::settings()->get('invoice_is_email_pdf'),
         'modelProps' => [
-          'receiptText' => $this->getSubmittedValue('receipt_text'),
+          'userEnteredText' => $this->getSubmittedValue('receipt_text'),
           'contactID' => $this->_receiptContactId,
           'contributionID' => $this->getContributionID(),
           'membershipID' => $this->getMembershipID(),

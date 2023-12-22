@@ -691,9 +691,7 @@ class CRM_Activity_BAO_Activity extends CRM_Activity_DAO_Activity {
     foreach ($result as $id => $activity) {
       $isBulkActivity = (!$bulkActivityTypeID || ($bulkActivityTypeID === $activity['activity_type_id']));
       foreach ($mappingParams as $apiKey => $expectedName) {
-        if (in_array($apiKey, [
-          'target_contact_name',
-        ])) {
+        if (in_array($apiKey, ['target_contact_name'])) {
 
           if ($isBulkActivity) {
             // @todo  - how is this used? Couldn't we use 'is_bulk' or something clearer?
@@ -2163,7 +2161,7 @@ AND cl.modified_id  = c.id
     }
 
     // Check for target and assignee contacts.
-    // First check for supper permission.
+    // First check for super permission.
     $supPermission = 'view all contacts';
     if ($action == CRM_Core_Action::UPDATE) {
       $supPermission = 'edit all contacts';
@@ -2299,13 +2297,9 @@ INNER JOIN  civicrm_option_group grp ON (grp.id = option_group_id AND grp.name =
    * @return bool
    */
   public static function checkEditInboundEmailsPermissions() {
-    if (CRM_Core_Permission::check('edit inbound email basic information')
-      || CRM_Core_Permission::check('edit inbound email basic information and content')
-    ) {
-      return TRUE;
-    }
-
-    return FALSE;
+    return CRM_Core_Permission::check([
+      ['edit inbound email basic information', /* OR */ 'edit inbound email basic information and content'],
+    ]);
   }
 
   /**
@@ -2317,7 +2311,7 @@ INNER JOIN  civicrm_option_group grp ON (grp.id = option_group_id AND grp.name =
     $viewOnlyActivities = [
       'Email' => CRM_Core_PseudoConstant::getKey('CRM_Activity_BAO_Activity', 'activity_type_id', 'Email'),
     ];
-    if (self::checkEditInboundEmailsPermissions()) {
+    if (!self::checkEditInboundEmailsPermissions()) {
       $viewOnlyActivities['Inbound Email'] = CRM_Core_PseudoConstant::getKey('CRM_Activity_BAO_Activity', 'activity_type_id', 'Inbound Email');
     }
     return $viewOnlyActivities;

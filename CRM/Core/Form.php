@@ -186,6 +186,20 @@ class CRM_Core_Form extends HTML_QuickForm_Page {
   private $authenticatedContactID;
 
   /**
+   * @var array
+   * @internal
+   * This gets used in CRM_Core_Form_Tag via multiple routes
+   */
+  public $_entityTagValues;
+
+  /**
+   * @var array
+   * @internal
+   * This gets used in CRM_Core_Form_Tag via multiple routes
+   */
+  public $_tagsetInfo;
+
+  /**
    * @return string
    */
   public function getContext() {
@@ -521,7 +535,7 @@ class CRM_Core_Form extends HTML_QuickForm_Page {
 
       $attributes['data-crm-datepicker'] = json_encode((array) $extra);
       if (!empty($attributes['aria-label']) || $label) {
-        $attributes['aria-label'] = $attributes['aria-label'] ?? $label;
+        $attributes['aria-label'] ??= $label;
       }
       $type = 'text';
     }
@@ -626,10 +640,7 @@ class CRM_Core_Form extends HTML_QuickForm_Page {
     $this->postProcessHook();
 
     // Respond with JSON if in AJAX context (also support legacy value '6')
-    if ($allowAjax && !empty($_REQUEST['snippet']) && in_array($_REQUEST['snippet'], [
-      CRM_Core_Smarty::PRINT_JSON,
-      6,
-    ])) {
+    if ($allowAjax && !empty($_REQUEST['snippet']) && in_array($_REQUEST['snippet'], [CRM_Core_Smarty::PRINT_JSON, 6])) {
       $this->ajaxResponse['buttonName'] = str_replace('_qf_' . $this->getAttribute('id') . '_', '', $this->controller->getButtonName());
       $this->ajaxResponse['action'] = $this->_action;
       if (isset($this->_id) || isset($this->id)) {
@@ -715,8 +726,6 @@ class CRM_Core_Form extends HTML_QuickForm_Page {
    * buildQuickForm.
    */
   public function buildForm() {
-    $this->_formBuilt = TRUE;
-
     $this->preProcess();
 
     CRM_Utils_Hook::preProcess(get_class($this), $this);
@@ -774,6 +783,7 @@ class CRM_Core_Form extends HTML_QuickForm_Page {
     // it's already been initialized.
     self::$_template->ensureVariablesAreAssigned($this->expectedSmartyVariables);
     self::$_template->addExpectedTabHeaderKeys();
+    $this->_formBuilt = TRUE;
   }
 
   /**
@@ -1006,7 +1016,7 @@ class CRM_Core_Form extends HTML_QuickForm_Page {
       $params['country'] = $params["country-$billingLocationID"] = $params["billing_country-$billingLocationID"] = CRM_Core_PseudoConstant::countryIsoCode($params["billing_country_id-$billingLocationID"]);
     }
 
-    [$hasAddressField, $addressParams] = CRM_Contribute_BAO_Contribution::getPaymentProcessorReadyAddressParams($params, $this->_bltID);
+    [$hasAddressField, $addressParams] = CRM_Contribute_BAO_Contribution::getPaymentProcessorReadyAddressParams($params);
     if ($hasAddressField) {
       $params = array_merge($params, $addressParams);
     }
@@ -1103,7 +1113,7 @@ class CRM_Core_Form extends HTML_QuickForm_Page {
   protected function handlePreApproval(&$params) {
     try {
       $payment = Civi\Payment\System::singleton()->getByProcessor($this->_paymentProcessor);
-      $params['component'] = $params['component'] ?? 'contribute';
+      $params['component'] ??= 'contribute';
       $result = $payment->doPreApproval($params);
       if (empty($result)) {
         // This could happen, for example, when paypal looks at the button value & decides it is not paypal express.
@@ -1415,7 +1425,7 @@ class CRM_Core_Form extends HTML_QuickForm_Page {
         }
       }
       // We use a class here to avoid html5 issues with collapsed cutsomfield sets.
-      $optAttributes['class'] = $optAttributes['class'] ?? '';
+      $optAttributes['class'] ??= '';
       if ($required) {
         $optAttributes['class'] .= ' required';
       }
@@ -1845,7 +1855,7 @@ class CRM_Core_Form extends HTML_QuickForm_Page {
       }
       if ($context == 'search') {
         $widget = $widget == 'Select2' ? $widget : 'Select';
-        $props['multiple'] = $props['multiple'] ?? TRUE;
+        $props['multiple'] ??= TRUE;
       }
       elseif (!empty($fieldSpec['serialize'])) {
         $props['multiple'] = TRUE;
@@ -1883,7 +1893,7 @@ class CRM_Core_Form extends HTML_QuickForm_Page {
       case 'Number':
       case 'Email':
         //TODO: Autodetect ranges
-        $props['size'] = $props['size'] ?? 60;
+        $props['size'] ??= 60;
         return $this->add(strtolower($widget), $name, $label, $props, $required);
 
       case 'hidden':
@@ -1891,8 +1901,8 @@ class CRM_Core_Form extends HTML_QuickForm_Page {
 
       case 'TextArea':
         //Set default columns and rows for textarea.
-        $props['rows'] = $props['rows'] ?? 4;
-        $props['cols'] = $props['cols'] ?? 60;
+        $props['rows'] ??= 4;
+        $props['cols'] ??= 60;
         if (empty($props['maxlength']) && isset($fieldSpec['length'])) {
           $props['maxlength'] = $fieldSpec['length'];
         }
@@ -1977,7 +1987,7 @@ class CRM_Core_Form extends HTML_QuickForm_Page {
         return $this->addEntityRef($name, $label, $props, $required);
 
       case 'Password':
-        $props['size'] = $props['size'] ?? 60;
+        $props['size'] ??= 60;
         return $this->add('password', $name, $label, $props, $required);
 
       // Check datatypes of fields
@@ -2085,7 +2095,7 @@ class CRM_Core_Form extends HTML_QuickForm_Page {
    * @return mixed
    */
   public function getVar($name) {
-    return $this->$name ?? NULL;
+    return $this->$name;
   }
 
   /**
@@ -2321,13 +2331,11 @@ class CRM_Core_Form extends HTML_QuickForm_Page {
       $props['api']['fieldName'] = $this->getDefaultEntity() . '.' . $name;
     }
     $props['class'] = ltrim(($props['class'] ?? '') . ' crm-form-autocomplete');
-    $props['placeholder'] = $props['placeholder'] ?? self::selectOrAnyPlaceholder($props, $required);
+    $props['placeholder'] ??= self::selectOrAnyPlaceholder($props, $required);
     $props['data-select-params'] = json_encode($props['select']);
     $props['data-api-params'] = json_encode($props['api']);
     $props['data-api-entity'] = $props['entity'];
-    if (!empty($props['select']['quickAdd'])) {
-      Civi::service('angularjs.loader')->addModules(['af']);
-    }
+
     CRM_Utils_Array::remove($props, 'select', 'api', 'entity');
     return $this->add('text', $name, $label, $props, $required);
   }
@@ -2363,7 +2371,7 @@ class CRM_Core_Form extends HTML_QuickForm_Page {
       unset($props['create']);
     }
 
-    $props['placeholder'] = $props['placeholder'] ?? self::selectOrAnyPlaceholder($props, $required);
+    $props['placeholder'] ??= self::selectOrAnyPlaceholder($props, $required);
 
     $defaults = [];
     if (!empty($props['multiple'])) {
@@ -2881,10 +2889,10 @@ class CRM_Core_Form extends HTML_QuickForm_Page {
   private function validateChainSelectFields() {
     foreach ($this->_chainSelectFields as $control => $target) {
       if ($this->elementExists($control) && $this->elementExists($target)) {
-        $controlValue = (array) $this->getElementValue($control);
+        $controlValue = (array) $this->getSubmitValue($control);
         $targetField = $this->getElement($target);
         $controlType = $targetField->getAttribute('data-callback') == 'civicrm/ajax/jqCounty' ? 'stateProvince' : 'country';
-        $targetValue = array_filter((array) $targetField->getValue());
+        $targetValue = array_filter((array) $this->getSubmitValue($target));
         if ($targetValue || $this->getElementError($target)) {
           $options = CRM_Core_BAO_Location::getChainSelectValues($controlValue, $controlType, TRUE);
           if ($targetValue) {
@@ -2933,29 +2941,17 @@ class CRM_Core_Form extends HTML_QuickForm_Page {
   /**
    * Get the currency for the form.
    *
-   * @todo this should be overriden on the forms rather than having this
-   * historic, possible handling in here. As we clean that up we should
-   * add deprecation notices into here.
-   *
-   * @param array $submittedValues
-   *   Array allowed so forms inheriting this class do not break.
-   *   Ideally we would make a clear standard around how submitted values
-   *   are stored (is $this->_values consistently doing that?).
-   *
    * @return string
    */
-  public function getCurrency($submittedValues = []) {
-    $currency = $this->_values['currency'] ?? NULL;
-    // For event forms, currency is in a different spot
-    if (empty($currency)) {
-      $currency = CRM_Utils_Array::value('currency', CRM_Utils_Array::value('event', $this->_values));
+  public function getCurrency() {
+    if ($this->getSubmittedValue('currency')) {
+      return $this->getSubmittedValue('currency');
     }
-    if (empty($currency)) {
-      $currency = CRM_Utils_Request::retrieveValue('currency', 'String');
+    $currency = CRM_Utils_Request::retrieveValue('currency', 'String');
+    if ($currency) {
+      return $currency;
     }
-    // @todo If empty there is a problem - we should probably put in a deprecation notice
-    // to warn if that seems to be happening.
-    return $currency;
+    return \Civi::settings()->get('defaultCurrency');
   }
 
   /**
@@ -3006,7 +3002,8 @@ class CRM_Core_Form extends HTML_QuickForm_Page {
    *
    * @param string $default
    *
-   * @throws \CRM_Core_Exception
+   *
+   * @noinspection PhpUnhandledExceptionInspection
    */
   public function setSelectedChild($default = NULL) {
     $selectedChild = CRM_Utils_Request::retrieve('selectedChild', 'Alphanumeric', $this, FALSE, $default);

@@ -483,10 +483,7 @@ class CRM_Contribute_Form_ContributionPage_Amount extends CRM_Contribute_Form_Co
         $val = $defaultVal;
       }
 
-      if (in_array($field, [
-        'min_amount',
-        'max_amount',
-      ])) {
+      if (in_array($field, ['min_amount', 'max_amount'])) {
         $val = CRM_Utils_Rule::cleanMoney($val);
       }
 
@@ -497,8 +494,8 @@ class CRM_Contribute_Form_ContributionPage_Amount extends CRM_Contribute_Form_Co
       $params['recur_frequency_unit'] = implode(CRM_Core_DAO::VALUE_SEPARATOR,
         array_keys($params['recur_frequency_unit'])
       );
-      $params['is_recur_interval'] = $params['is_recur_interval'] ?? FALSE;
-      $params['is_recur_installments'] = $params['is_recur_installments'] ?? FALSE;
+      $params['is_recur_interval'] ??= FALSE;
+      $params['is_recur_installments'] ??= FALSE;
     }
 
     if (!empty($params['adjust_recur_start_date'])) {

@@ -616,11 +616,7 @@ class CRM_Mailing_BAO_Mailing extends CRM_Mailing_DAO_Mailing implements \Civi\C
 
       $this->preparedTemplates = [];
 
-      foreach ([
-        'html',
-        'text',
-        'subject',
-      ] as $key) {
+      foreach (['html', 'text', 'subject'] as $key) {
         if (!isset($templates[$key])) {
           continue;
         }
@@ -1476,7 +1472,7 @@ ORDER BY   civicrm_email.is_bulkmail DESC
       $params = self::processWorkflowPermissions($params);
     }
     if (!$id) {
-      $params['domain_id'] = $params['domain_id'] ?? CRM_Core_Config::domainID();
+      $params['domain_id'] ??= CRM_Core_Config::domainID();
     }
     if (
       ((!$id && empty($params['replyto_email'])) || !isset($params['replyto_email'])) &&

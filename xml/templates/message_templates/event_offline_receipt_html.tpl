@@ -25,8 +25,8 @@
    <td>
     {assign var="greeting" value="{contact.email_greeting_display}"}{if $greeting}<p>{$greeting},</p>{/if}
 
-    {if !empty($event.confirm_email_text) AND (empty($isOnWaitlist) AND empty($isRequireApproval))}
-     <p>{$event.confirm_email_text}</p>
+    {if $userText}
+     <p>{$userText}</p>
     {/if}
 
     {if !empty($isOnWaitlist)}
@@ -404,7 +404,6 @@
               <td colspan="2" {$valueStyle}>
                 {$credit_card_type}<br/>
                 {$credit_card_number}<br/>
-                {ts}Expires{/ts}: {$credit_card_exp_date|truncate:7:''|crmDate}
               </td>
             </tr>
           {/if}

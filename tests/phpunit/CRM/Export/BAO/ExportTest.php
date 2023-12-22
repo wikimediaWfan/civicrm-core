@@ -192,7 +192,7 @@ class CRM_Export_BAO_ExportTest extends CiviUnitTestCase {
     $row = $this->csv->fetchOne(1);
     $this->assertEquals(95, $row['Net Amount']);
     $this->assertEquals(5, $row['Soft Credit Amount']);
-    $this->assertEquals('Anderson, Anthony', $row['Soft Credit For']);
+    $this->assertEquals('Anderson, Anthony II', $row['Soft Credit For']);
     $this->assertEquals($this->contributionIDs[0], $row['Soft Credit For Contribution ID']);
 
     // Ideally we would use a randomised temp table name & use generic temp cleanup for cleanup - but
@@ -230,7 +230,7 @@ class CRM_Export_BAO_ExportTest extends CiviUnitTestCase {
       'No Bulk Emails (User Opt Out)' => '',
       'Legal Identifier' => '',
       'External Identifier' => '',
-      'Sort Name' => 'Anderson, Anthony',
+      'Sort Name' => 'Anderson, Anthony II',
       'Display Name' => 'Mr. Anthony Anderson II',
       'Nickname' => '',
       'Legal Name' => '',
@@ -1082,7 +1082,7 @@ class CRM_Export_BAO_ExportTest extends CiviUnitTestCase {
       'No Bulk Emails (User Opt Out)' => '',
       'Legal Identifier' => '',
       'External Identifier' => '',
-      'Sort Name' => 'Anderson, Anthony',
+      'Sort Name' => 'Anderson, Anthony II',
       'Display Name' => 'Mr. Anthony Anderson II',
       'Nickname' => '',
       'Legal Name' => '',
@@ -1114,9 +1114,9 @@ class CRM_Export_BAO_ExportTest extends CiviUnitTestCase {
       'Contact is in Trash' => '',
       'Created Date' => '2019-07-11 10:28:15',
       'Modified Date' => '2019-07-11 10:28:15',
-      'Addressee' => 'Mr. Anthony J. Anderson II, Dr. Sarah J. Smith II',
-      'Email Greeting' => 'Dear Anthony, Sarah',
-      'Postal Greeting' => 'Dear Anthony, Sarah',
+      'Addressee' => 'Mr. Anthony J. Anderson II, Mr. Joe M. Miller II',
+      'Email Greeting' => 'Dear Anthony, Joe',
+      'Postal Greeting' => 'Dear Anthony, Joe',
       'Current Employer' => '',
       'Location Type' => 'Home',
       'Street Address' => 'Ambachtstraat 23',
@@ -1189,9 +1189,9 @@ class CRM_Export_BAO_ExportTest extends CiviUnitTestCase {
       ],
     ]);
     $this->assertExpectedOutput([
-      'Addressee' => 'random string Mr. Anthony Anderson II, Dr. Sarah Smith II',
-      'Email Greeting' => 'II Anderson and first is Anthony , II Smith Sarah ',
-      'Postal Greeting' => 'II Anderson and first is Anthony , II Smith Sarah ',
+      'Addressee' => 'random string Mr. Anthony Anderson II, Mr. Joe Miller II',
+      'Email Greeting' => 'II Anderson and first is Anthony , II Miller Joe ',
+      'Postal Greeting' => 'II Anderson and first is Anthony , II Miller Joe ',
     ], $this->csv->fetchOne());
     // 3 contacts merged to 2.
     $this->assertCount(2, $this->csv);
@@ -2986,9 +2986,9 @@ class CRM_Export_BAO_ExportTest extends CiviUnitTestCase {
       [
         'first_name' => 'Joe',
         'last_name' => 'Miller',
-        'Home-street_address' => '',
-        'Home-city' => '',
-        'Home-country' => '',
+        'Home-street_address' => 'Ambachtstraat 23',
+        'Home-city' => 'Brummen',
+        'Home-country' => 'Netherlands',
         'Home-email' => 'joe_miller@civicrm.org',
       ],
     ], $result);
@@ -3004,7 +3004,7 @@ class CRM_Export_BAO_ExportTest extends CiviUnitTestCase {
     $params = [
       'contact_id' => $contact3,
       'location_type_id' => 'Home',
-      'street_address' => 'Ambachtstraat 23',
+      'street_address' => 'A different address',
       'postal_code' => '6971 BN',
       'country_id' => '1152',
       'city' => 'Brummen',

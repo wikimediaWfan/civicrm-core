@@ -639,7 +639,7 @@ HERESQL;
 
     $order = NULL;
     if (!empty($params['sortBy'])) {
-      if (strstr($params['sortBy'], 'date ')) {
+      if (str_contains($params['sortBy'], 'date ')) {
         $params['sortBy'] = str_replace('date', 'activity_date_time', $params['sortBy']);
       }
       $order = "ORDER BY " . $params['sortBy'];
@@ -2502,7 +2502,7 @@ WHERE id IN (' . implode(',', $copiedActivityIds) . ')';
     $actionOperations = ['view', 'edit', 'delete'];
     if (in_array($operation, $actionOperations)) {
 
-      //do cache when user has non/supper permission.
+      // Do cache when user has non-super permission.
       static $allowOperations;
 
       if (!is_array($allowOperations) ||
@@ -2541,12 +2541,8 @@ WHERE id IN (' . implode(',', $copiedActivityIds) . ')';
         //has permissions.
         if (!empty($hasPermissions)) {
           //need to check activity object specific.
-          if (in_array($operation, [
-            'view',
-            'edit',
-          ])
-          ) {
-            //do we have supper permission.
+          if (in_array($operation, ['view', 'edit'])) {
+            // Check for super permission.
             if (in_array('access all cases and activities', $hasPermissions[$operation])) {
               $allowOperations[$operation] = $allow = TRUE;
             }
@@ -2608,8 +2604,7 @@ WHERE id IN (' . implode(',', $copiedActivityIds) . ')';
         }
       }
       else {
-        //use cache.
-        //here contact might have supper/non permission.
+        // Use cache; user might have non-super permission.
         $allow = $allowOperations[$operation];
       }
     }
@@ -2709,13 +2704,9 @@ WHERE id IN (' . implode(',', $copiedActivityIds) . ')';
       return FALSE;
     }
 
-    if (CRM_Core_Permission::check('access my cases and activities') ||
-      CRM_Core_Permission::check('access all cases and activities')
-    ) {
-      return TRUE;
-    }
-
-    return FALSE;
+    return CRM_Core_Permission::check([
+      ['access my cases and activities', /* OR */ 'access all cases and activities'],
+    ]);
   }
 
   /**

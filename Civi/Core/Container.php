@@ -188,6 +188,8 @@ class Container {
     foreach ($basicCaches as $cacheSvc => $cacheGrp) {
       $definitionParams = [
         'name' => $cacheGrp . (in_array($cacheGrp, $verSuffixCaches) ? $verSuffix : ''),
+        // FIXME: Uncommenting below causes test failure
+        // 'service' => $cacheSvc,
         'type' => ['*memory*', 'SqlGroup', 'ArrayCache'],
       ];
       // For Caches that we don't really care about the ttl for and/or maybe accessed
@@ -364,6 +366,11 @@ class Container {
         []
       ))->addTag('kernel.event_subscriber')->setPublic(TRUE);
     }
+    $container->setDefinition("crm_financial_trxn_tokens", new Definition(
+      'CRM_Financial_FinancialTrxnTokens',
+      []
+    ))->addTag('kernel.event_subscriber')->setPublic(TRUE);
+
     $container->setDefinition('civi_token_impliedcontext', new Definition(
       'Civi\Token\ImpliedContextSubscriber',
       []
@@ -430,6 +437,7 @@ class Container {
     $moduleEnvId = md5(\CRM_Core_Config_Runtime::getId());
     $angCache = \CRM_Utils_Cache::create([
       'name' => substr('angular_' . $moduleEnvId, 0, 32),
+      'service' => 'angular_manager',
       'type' => ['*memory*', 'SqlGroup', 'ArrayCache'],
       'withArray' => 'fast',
       'prefetch' => TRUE,

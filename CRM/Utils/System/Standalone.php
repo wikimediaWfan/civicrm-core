@@ -16,6 +16,7 @@
  */
 
 use Civi\Standalone\Security;
+use Civi\Standalone\SessionHandler;
 
 /**
  * Standalone specific stuff goes here.
@@ -33,19 +34,6 @@ class CRM_Utils_System_Standalone extends CRM_Utils_System_Base {
   public function missingStandaloneExtension() {
     // error_log("sessionStart, " . (class_exists(\Civi\Standalone\Security::class) ? 'exists' : 'no ext'));
     return !class_exists(\Civi\Standalone\Security::class);
-  }
-
-  /**
-   * Start a new session.
-   */
-  public function sessionStart() {
-    parent::sessionStart();
-    if ($this->missingStandaloneExtension()) {
-      // Provide a fake contact and user ID, otherwise we don't get a menu.
-      $session = CRM_Core_Session::singleton();
-      $session->set('userID', 1);
-      $session->set('ufID', 1);
-    }
   }
 
   /**
@@ -206,10 +194,10 @@ class CRM_Utils_System_Standalone extends CRM_Utils_System_Base {
   ) {
     $fragment = $fragment ? ('#' . $fragment) : '';
     if ($absolute) {
-      return Civi::paths()->getUrl("[cms.root]/{$path}?{$query}$fragment");
+      return Civi::paths()->getUrl("[cms.root]/{$path}?{$query}$fragment", 'absolute');
     }
     else {
-      return "/{$path}?{$query}$fragment";
+      return Civi::paths()->getUrl("[cms.root]/{$path}?{$query}$fragment");
     }
   }
 
@@ -314,15 +302,13 @@ class CRM_Utils_System_Standalone extends CRM_Utils_System_Base {
 
     if (!isset($runOnce)) {
       $runOnce = TRUE;
+    }
+    else {
       return TRUE;
     }
 
-    $root = rtrim($this->cmsRootPath(), '/' . DIRECTORY_SEPARATOR);
-    if (empty($root) || !is_dir($root) || !chdir($root)) {
-      return FALSE;
-    }
-
-    require_once $root . '/../vendor/autoload.php'; /* assumes $root to be the _web_ root path, not the project root path. */
+    global $civicrm_paths;
+    require_once $civicrm_paths['civicrm.vendor']['path'] . '/autoload.php';
 
     // seems like we've bootstrapped drupal
     $config = CRM_Core_Config::singleton();
@@ -353,7 +339,7 @@ class CRM_Utils_System_Standalone extends CRM_Utils_System_Base {
       // if given username we expect a correct password.
       $user = $security->loadUserByName($params['name']);
       if ($user) {
-        if (!$security->checkPassword($params['pass'], $user['password'] ?? '')) {
+        if (!$security->checkPassword($params['pass'], $user['hashed_password'] ?? '')) {
           return FALSE;
         }
       }
@@ -390,7 +376,7 @@ class CRM_Utils_System_Standalone extends CRM_Utils_System_Base {
     }
 
     return [
-      'url' => CRM_Utils_File::addTrailingSlash('', '/'),
+      'url' => CRM_Utils_File::addTrailingSlash(CIVICRM_UF_BASEURL, '/') . '/core/',
       'path' => CRM_Utils_File::addTrailingSlash($civicrm_root),
     ];
   }
@@ -485,18 +471,6 @@ class CRM_Utils_System_Standalone extends CRM_Utils_System_Base {
   }
 
   /**
-   * Function to return current language.
-   *
-   * @return string
-   */
-  public function getCurrentLanguage() {
-    if ($this->missingStandaloneExtension()) {
-      return NULL;
-    }
-    return Security::singleton()->getCurrentLanguage();
-  }
-
-  /**
    * I don't know why this needs to be here? Does it even?
    *
    * Helper function to extract path, query and route name from Civicrm URLs.
@@ -555,6 +529,13 @@ class CRM_Utils_System_Standalone extends CRM_Utils_System_Base {
    */
   public function getTimeZoneString() {
     $timezone = date_default_timezone_get();
+    $userId = Security::singleton()->getLoggedInUfID();
+    if ($userId) {
+      $user = Security::singleton()->loadUserByID($userId);
+      if ($user && !empty($user['timezone'])) {
+        $timezone = $user['timezone'];
+      }
+    }
     return $timezone;
   }
 
@@ -592,10 +573,37 @@ class CRM_Utils_System_Standalone extends CRM_Utils_System_Base {
       CRM_Core_Error::statusBounce(ts("Access denied"), CRM_Utils_System::url('civicrm'));
     }
     else {
-      CRM_Utils_System::redirect('/civicrm/login?anonAccessDenied');
-    }
+      http_response_code(403);
 
-    // TODO: Prettier error page
+      // render a login page
+      if (class_exists('CRM_Standaloneusers_Page_Login')) {
+        $loginPage = new CRM_Standaloneusers_Page_Login();
+        $loginPage->assign('anonAccessDenied', TRUE);
+        return $loginPage->run();
+      }
+
+      throw new CRM_Core_Exception('Access denied. Standaloneusers extension not found');
+    }
+  }
+
+  /**
+   * Start a new session.
+   */
+  public function sessionStart() {
+    $session_handler = new SessionHandler();
+    session_set_save_handler($session_handler);
+
+    $session_max_lifetime = Civi::settings()->get('standaloneusers_session_max_lifetime') ?? 1440;
+
+    session_start([
+      'cookie_httponly'  => 1,
+      'cookie_secure'    => !empty($_SERVER['HTTPS']),
+      'gc_maxlifetime'   => $session_max_lifetime,
+      'name'             => 'SESSCIVISO',
+      'use_cookies'      => 1,
+      'use_only_cookies' => 1,
+      'use_strict_mode'  => 1,
+    ]);
   }
 
 }

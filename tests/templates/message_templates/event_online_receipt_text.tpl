@@ -20,9 +20,6 @@ is_pay_later:::{$is_pay_later}
 {if !empty($isAmountzero)}
 isAmountzero:::{$isAmountzero}
 {/if}
-{if !empty($isAdditionalParticipant)}
-isAdditionalParticipant:::{$isAdditionalParticipant}
-{/if}
 {if !empty($pay_later_receipt)}
 pay_later_receipt:::{$pay_later_receipt}
 {/if}
@@ -68,10 +65,6 @@ lineitem:::{if !empty($lineItem)}
 part:::{foreach from=$part item=value key=key}
 {$key}{$value}
 {/foreach}
-{/if}
-
-{if !empty($dataArray)}
-dataArray:::{$dataArray}
 {/if}
 
 {if isset($totalTaxAmount)}
