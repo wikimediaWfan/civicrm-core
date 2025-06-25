@@ -279,7 +279,7 @@ input.crm-form-entityref {
 .crm-container .crm-editable-disabled,
 .crm-container .crm-editable-enabled {
   border: var(--crm-dash-edit-border);
-  border-color: lightgrey;
+  border-color: var(--crm-input-border-color);
 }
 .crm-container .crm-editable-textarea-enabled {
   white-space: normal;
@@ -296,9 +296,9 @@ input.crm-form-entityref {
 .crm-container span.crm-editable-disabled,
 .crm-container span.crm-editable-enabled {
   display: inline-block;
-  height: 2em;
-  min-width: 10em;
-  padding: 2px 5px;
+  height: 2rem;
+  min-width: 10rem;
+  padding: 0.2rem 0.5rem;
 }
 .crm-container .crm-editable-enabled .crm-i {
   opacity: .5;
