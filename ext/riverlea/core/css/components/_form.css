@@ -296,9 +296,9 @@ input.crm-form-entityref {
 .crm-container span.crm-editable-disabled,
 .crm-container span.crm-editable-enabled {
   display: inline-block;
-  height: 2rem;
+  min-height: var(--crm-l);
   min-width: 10rem;
-  padding: 0.2rem 0.5rem;
+  padding: var(--crm-xs2) var(--crm-m);
 }
 .crm-container .crm-editable-enabled .crm-i {
   opacity: .5;
