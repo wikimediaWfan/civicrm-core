@@ -11,10 +11,10 @@
 {foreach from=$viewCustomData item=customValues key=customGroupId}
   {foreach from=$customValues item=cd_edit key=cvID}
     {assign var='index' value=$groupId|cat:"_$cvID"}
-  <div id="{$cd_edit.name}" class="crm-accordion-wrapper {if $cd_edit.collapse_display neq 0}collapsed{/if}">
-    <div class="crm-accordion-header">
+  <details id="{$cd_edit.name}" class="crm-accordion-bold" {if $cd_edit.collapse_display neq 0}{else}open{/if}>
+    <summary>
       {$cd_edit.title}
-    </div>
+    </summary>
     <div class="crm-accordion-body">
       {if !empty($cd_edit.fields)}
         <table class="crm-info-panel">
@@ -28,13 +28,15 @@
                     {$val}<br/>
                   {/foreach}
                 {elseif $element.field_data_type == 'Memo'}
-                  {$element.field_value|nl2br}
+                  {$element.field_value|nl2br|purify}
                 {elseif $element.field_data_type == 'Money' && $element.field_type == 'Text'}
                   {$element.data|crmMoney}
                 {elseif $element.field_data_type == 'ContactReference' && $element.contact_ref_links}
-                  {', '|implode:$element.contact_ref_links}
+                  {$element.contact_ref_links|join:', '}
+                {elseif $element.field_type eq 'File' || $element.field_type eq 'TextArea' || $element.field_type eq 'RichTextEditor' || $element.field_type === 'Link'}
+                  {$element.field_value|purify}
                 {else}
-                  {$element.field_value}
+                  {$element.field_value|escape}
                 {/if}
               </td>
             </tr>
@@ -47,7 +49,7 @@
       <br/>
       <div class="clear"></div>
     </div>
-  </div>
+  </details>
 
   {/foreach}
 {/foreach}

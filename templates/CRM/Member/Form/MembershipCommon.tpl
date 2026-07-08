@@ -2,8 +2,8 @@
   {if $accessContribution && ($action != 2 or (!$rows.0.contribution_id AND !$softCredit))}
     <table>
       <tr class="crm-{$formClass}-form-block-contribution-contact">
-        <td class="label">{$form.is_different_contribution_contact.label}</td>
-        <td>{$form.is_different_contribution_contact.html}&nbsp;&nbsp;{help id="id-contribution_contact"}</td>
+        <td class="label">{$form.is_different_contribution_contact.label} {help id="is_different_contribution_contact" file="CRM/Member/Page/Tab.hlp"}</td>
+        <td>{$form.is_different_contribution_contact.html}</td>
       </tr>
       <tr id="record-different-contact">
         <td>&nbsp;</td>
@@ -34,8 +34,8 @@
           <td>{$form.financial_type_id.html}</td>
         </tr>
         <tr class="crm-{$formClass}-form-block-payment_instrument_id">
-          <td class="label">{$form.payment_instrument_id.label}<span class='marker'>*</span></td>
-          <td>{$form.payment_instrument_id.html} {help id="payment_instrument_id" file="CRM/Contribute/Page/Tab.hlp"}</td>
+          <td class="label">{$form.payment_instrument_id.label}<span class='marker'>*</span> {help id="payment_instrument_id" file="CRM/Contribute/Page/Tab.hlp"}</td>
+          <td>{$form.payment_instrument_id.html}</td>
         </tr>
 
         {if $action neq 2}
@@ -51,7 +51,7 @@
 
         <tr class="crm-membership-form-block-billing">
           <td colspan="2">
-            {include file='CRM/Core/BillingBlockWrapper.tpl'}
+            {include file='CRM/Core/BillingBlockWrapper.tpl' showPaymentOnConfirm=false}
           </td>
         </tr>
       </table>
@@ -61,7 +61,7 @@
 {else}
   {if !empty($form.auto_renew)}
     <tr id="autoRenew" class="crm-{$formClass}-form-block-auto_renew">
-      <td class="label"> {$form.auto_renew.label} {help id="id-auto_renew" file="CRM/Member/Form/Membership.hlp" action=$action} </td>
+      <td class="label"> {$form.auto_renew.label} {help id="auto_renew" file="CRM/Member/Form/Membership.hlp" action=$action} </td>
       <td> {$form.auto_renew.html} </td>
     </tr>
   {/if}
@@ -76,8 +76,8 @@
     </td>
   </tr>
   <tr class="crm-membership-form-block-contribution-contact">
-    <td class="label">{$form.is_different_contribution_contact.label}</td>
-    <td>{$form.is_different_contribution_contact.html}&nbsp;&nbsp;{help id="id-contribution_contact"}</td>
+    <td class="label">{$form.is_different_contribution_contact.label} {help id="is_different_contribution_contact"}</td>
+    <td>{$form.is_different_contribution_contact.html}</td>
   </tr>
   <tr id="record-different-contact">
     <td>&nbsp;</td>
@@ -105,7 +105,7 @@
   </tr>
   <tr class="crm-membership-form-block-billing">
     <td colspan="2">
-      {include file='CRM/Core/BillingBlockWrapper.tpl'}
+      {include file='CRM/Core/BillingBlockWrapper.tpl' showPaymentOnConfirm=false}
     </td>
   </tr>
 {/if}

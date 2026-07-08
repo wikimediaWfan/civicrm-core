@@ -14,59 +14,67 @@
 
   {if $field.field_type eq "Formatting"}
     {if $action neq 4}
-      {$field.help_pre}
+      {$field.help_pre|purify}
     {/if}
   {elseif $profileFieldName}
     {* Show explanatory text for field if not in 'view' mode *}
     {if $field.help_pre && $action neq 4}
       <div class="crm-section helprow-{$profileFieldName}-section helprow-pre" id="helprow-{$rowIdentifier}">
-        <div class="content description">{$field.help_pre}</div>
+        <div class="content description">{$field.help_pre|purify}</div>
       </div>
     {/if}
     {if array_key_exists('options_per_line', $field) && $field.options_per_line != 0}
-      <div class="crm-section editrow_{$profileFieldName}-section form-item" id="editrow-{$rowIdentifier}">
-        <div class="label option-label">{$formElement.label}</div>
-        <div class="content 3">
-
-          {assign var="count" value=1}
-          {strip}
-            <table class="form-layout-compressed">
-              <tr>
-                {* sort by fails for option per line. Added a variable to iterate through the element array*}
-                {foreach name=outer key=key item=item from=$formElement}
-                  {* There are both numeric and non-numeric keys mixed in here, where the non-numeric are metadata that aren't arrays with html members. *}
-                  {if is_array($item) && array_key_exists('html', $item)}
-                <td class="labels font-light">{$formElement.$key.html}</td>
-                {if $count == $field.options_per_line}
-              </tr>
-              <tr>
-                {assign var="count" value=1}
-                {else}
-                {assign var="count" value=$count+1}
-                {/if}
-                {/if}
-                {/foreach}
-              </tr>
-            </table>
-          {/strip}
+      <div class="crm-section editrow_{$profileFieldName}-section form-item" id="editrow-{$rowIdentifier}" {if $field.html_type eq 'Radio'}role="radiogroup" aria-labelledby="{$profileFieldName}_group"{/if}>
+        <div class="label option-label" {if $field.html_type eq 'Radio' or $field.html_type eq 'CheckBox'}id="{$profileFieldName}_group">{$formElement.label|regex_replace:"/\<(\/|)label\>/":""}{else}>{$formElement.label}{/if}</div>
+        <div class="content" {if $field.html_type eq 'CheckBox'}role="group"  aria-labelledby="{$profileFieldName}_group"{/if}>
+          {$formElement.html}
         </div>
         <div class="clear"></div>
       </div>
     {else}
-      <div class="crm-section editrow_{$profileFieldName}-section form-item" id="editrow-{$rowIdentifier}">
-        <div class="label">
-          {$formElement.label}
-        </div>
-        <div class="content">
-          {if $profileFieldName|substr:0:3 eq 'im-'}
+      <div class="crm-section editrow_{$profileFieldName}-section form-item" id="editrow-{$rowIdentifier}"  {if $field.html_type eq 'Radio'}role="radiogroup" aria-labelledby="{$profileFieldName}_group"{/if}>
+        <div class="label"{if $field.html_type eq 'Radio' or $field.html_type eq 'CheckBox'}id="{$profileFieldName}_group">{$formElement.label|regex_replace:"/\<(\/|)label\>/":""}{else}>{$formElement.label}{/if}</div>
+        <div class="content" {if $field.html_type eq 'CheckBox'}role="group"  aria-labelledby="{$profileFieldName}_group"{/if}>
+          {if $profileFieldName|str_starts_with:'im-'}
             {assign var="provider" value=profileFieldNamen|cat:"-provider_id"}
-            {$form.$provider.html}&nbsp;
+            {if array_key_exists($provider, $form)}{$form.$provider.html}{/if}&nbsp;
           {/if}
 
           {if $profileFieldName eq 'email_greeting' or  $profileFieldName eq 'postal_greeting' or $profileFieldName eq 'addressee'}
             {include file="CRM/Profile/Form/GreetingType.tpl"}
+          {elseif $profileFieldName eq 'tag'}
+          <table class="form-layout-compressed{if $context EQ 'profile'} crm-profile-tagsandgroups{/if}">
+            <tr>
+              <td>
+            <div class="crm-section tag-section">
+              {if !empty($title)}{$form.tag.label}<br>{/if}
+              {$form.tag.html}
+            </div>
+              </td>
+            </tr>
+          </table>
           {elseif ($profileFieldName eq 'group' && $form.group) || ($profileFieldName eq 'tag' && $form.tag)}
-            {include file="CRM/Contact/Form/Edit/TagsAndGroups.tpl" type=$profileFieldName title=null context="profile"}
+            <table class="form-layout-compressed{if $context EQ 'profile'} crm-profile-tagsandgroups{/if}">
+              <tr>
+                <td>
+            {if $groupElementType eq 'select'}
+              <div class="crm-section group-section">
+                {if $title}{$form.group.label}<br>{/if}
+                {$form.group.html}
+              </div>
+            {else}
+              {foreach key=key item=item from=$tagGroup.group}
+                <div class="group-wrapper">
+                  {$form.group.$key.html}
+                  {if $item.description}
+                    <div class="description">{$item.description}</div>
+                  {/if}
+                </div>
+              {/foreach}
+            {/if}
+                </td>
+              </tr>
+            </table>
           {elseif array_key_exists('is_datetime_field', $field) && $field.is_datetime_field && $action & 4}
             <span class="crm-frozen-field">
               {$formElement.value|crmDate:$field.smarty_view_format}
@@ -84,10 +92,10 @@
                 </div>
               </div>
             {/if}
-          {elseif $profileFieldName|substr:0:5 eq 'phone'}
+          {elseif $profileFieldName|str_starts_with:'phone'}
             {assign var="phone_ext_field" value=$profileFieldName|replace:'phone':'phone_ext'}
             {$formElement.html}
-            {if $form.$phone_ext_field.html}
+            {if array_key_exists($phone_ext_field, $form)}
               &nbsp;{$form.$phone_ext_field.html}
             {/if}
           {else}
@@ -102,6 +110,18 @@
               {/if}
             {elseif $field.html_type eq 'File' && $viewOnlyFileValues}
               {$viewOnlyFileValues.$profileFieldName}
+            {elseif $field.html_type eq 'Radio' or $field.html_type eq 'CheckBox' && $field.data_type neq "Boolean"}
+              <div class="crm-multiple-checkbox-radio-options">
+                {foreach name=outer key=key item=item from=$formElement}
+                  {if is_array($item) && array_key_exists('html', $item)}
+                    {$formElement.$key.html}
+                  {/if}
+                {/foreach}
+              </div>
+              {* Include the edit options list for admins *}
+              {if $formElement.html|strstr:"crm-option-edit-link"}
+                {$formElement.html|regex_replace:"@^.*(<a href=.*? class=.crm-option-edit-link.*?</a>)$@s":"$1"}
+              {/if}
             {else}
               {$formElement.html}
             {/if}
@@ -120,7 +140,7 @@
     {* Show explanatory text for field if not in 'view' mode *}
     {if $field.help_post && $action neq 4}
       <div class="crm-section helprow-{$profileFieldName}-section helprow-post" id="helprow-{$rowIdentifier}">
-        <div class="content description">{$field.help_post}</div>
+        <div class="content description">{$field.help_post|purify}</div>
       </div>
     {/if}
   {/if}

@@ -10,9 +10,15 @@
  */
 namespace Civi\FlexMailer\Listener;
 
+use Civi\Core\Service\AutoService;
 use Civi\FlexMailer\Event\ComposeBatchEvent;
 
-class ToHeader extends BaseListener {
+/**
+ * @service civi_flexmailer_to_header
+ */
+class ToHeader extends AutoService {
+
+  use IsActiveTrait;
 
   /**
    * Inject the "To:" header.
@@ -29,13 +35,7 @@ class ToHeader extends BaseListener {
       /** @var \Civi\FlexMailer\FlexMailerTask $task */
 
       $task->setMailParam('toEmail', $task->getAddress());
-
-      if (isset($names[$task->getContactId()])) {
-        $task->setMailParam('toName', $names[$task->getContactId()]);
-      }
-      else {
-        $task->setMailParam('toName', '');
-      }
+      $task->setMailParam('toName', $names[$task->getContactId() ?? ''] ?? '');
     }
   }
 
@@ -50,7 +50,7 @@ class ToHeader extends BaseListener {
     $ids = [];
     foreach ($tasks as $task) {
       /** @var \Civi\FlexMailer\FlexMailerTask $task */
-      $ids[$task->getContactId()] = $task->getContactId();
+      $ids[$task->getContactId() ?? ''] = $task->getContactId();
     }
 
     $ids = array_filter($ids, 'is_numeric');

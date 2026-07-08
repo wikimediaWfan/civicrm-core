@@ -40,7 +40,7 @@ class CRM_Activity_ActionMapping extends \Civi\ActionSchedule\MappingBase {
     return 'Activity';
   }
 
-  public function modifySpec(\Civi\Api4\Service\Spec\RequestSpec $spec) {
+  public function modifyApiSpec(\Civi\Api4\Service\Spec\RequestSpec $spec) {
     $spec->getFieldByName('entity_value')
       ->setLabel(ts('Activity Type'));
     $spec->getFieldByName('entity_status')
@@ -138,7 +138,7 @@ class CRM_Activity_ActionMapping extends \Civi\ActionSchedule\MappingBase {
       $query->where("e.status_id IN (#selectedStatuss)")
         ->param('selectedStatuss', $selectedStatuses);
     }
-    $query->where('e.is_current_revision = 1 AND e.is_deleted = 0');
+    $query->where('e.is_deleted = 0');
 
     return $query;
   }

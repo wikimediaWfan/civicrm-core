@@ -94,7 +94,7 @@ class CRM_Core_BAO_FinancialTrxn extends CRM_Financial_BAO_FinancialTrxn {
       $params[2] = [$fromAccountID, 'Integer'];
     }
     if ($orderBy) {
-      $orderBy = CRM_Utils_Type::escape($orderBy, 'String');
+      $orderBy = CRM_Utils_Type::escape($orderBy, 'MysqlOrderByDirection');
     }
 
     $query = "SELECT ceft.id, ceft.financial_trxn_id, cft.trxn_id FROM `civicrm_financial_trxn` cft
@@ -348,54 +348,6 @@ WHERE ceft.entity_id = %1";
   }
 
   /**
-   * get partial payment amount.
-   *
-   * @deprecated
-   *
-   * This function basically calls CRM_Contribute_BAO_Contribution::getContributionBalance
-   * - just do that. If need be we could have a fn to get the contribution id but
-   * chances are the calling functions already know it anyway.
-   *
-   * @param int $entityId
-   * @param string $entityName
-   * @param int $lineItemTotal
-   *
-   * @return array
-   */
-  public static function getPartialPaymentWithType($entityId, $entityName = 'participant', $lineItemTotal = NULL) {
-    CRM_Core_Error::deprecatedFunctionWarning('CRM_Contribute_BAO_Contribution::getContributionBalance');
-    $value = NULL;
-    if (empty($entityName)) {
-      return $value;
-    }
-
-    // @todo - deprecate passing in entity & type - just figure out contribution id FIRST
-    if ($entityName == 'participant') {
-      $contributionId = CRM_Core_DAO::getFieldValue('CRM_Event_DAO_ParticipantPayment', $entityId, 'contribution_id', 'participant_id');
-    }
-    elseif ($entityName == 'membership') {
-      $contributionId = CRM_Core_DAO::getFieldValue('CRM_Member_DAO_MembershipPayment', $entityId, 'contribution_id', 'membership_id');
-    }
-    else {
-      $contributionId = $entityId;
-    }
-    $financialTypeId = CRM_Core_DAO::getFieldValue('CRM_Contribute_DAO_Contribution', $contributionId, 'financial_type_id');
-
-    if ($contributionId && $financialTypeId) {
-
-      $paymentVal = CRM_Contribute_BAO_Contribution::getContributionBalance($contributionId, $lineItemTotal);
-      $value = [];
-      if ($paymentVal < 0) {
-        $value['refund_due'] = $paymentVal;
-      }
-      elseif ($paymentVal > 0) {
-        $value['amount_owed'] = $paymentVal;
-      }
-    }
-    return $value;
-  }
-
-  /**
    * Get the total sum of all payments (and optionally refunds) for a contribution record
    *
    * @param int $contributionID
@@ -464,14 +416,19 @@ WHERE ceft.entity_id = %1";
    *
    * @param array $lineItems
    *
-   * @param CRM_Contribute_BAO_Contribution $contributionDetails
+   * @param CRM_Contribute_BAO_Contribution|CRM_Contribute_DAO_Contribution $contributionDetails
    *
    * @param bool $update
    *
    * @param string $context
    *
+   * @deprecated only called from deprecated / discouraged paths.
+   *
    */
   public static function createDeferredTrxn($lineItems, $contributionDetails, $update = FALSE, $context = NULL) {
+    if ($update || $context) {
+      CRM_Core_Error::deprecatedWarning('deprecated parameter passed to (deprecated) function ' . __FUNCTION__);
+    }
     if (empty($lineItems)) {
       return;
     }
@@ -600,54 +557,6 @@ WHERE ceft.entity_id = %1";
       $trxnparams['pan_truncation'] = $panTruncation;
     }
     civicrm_api3('FinancialTrxn', 'create', $trxnparams);
-  }
-
-  /**
-   * The function is responsible for handling financial entries if payment instrument is changed
-   *
-   * @param array $inputParams
-   *
-   */
-  public static function updateFinancialAccountsOnPaymentInstrumentChange($inputParams) {
-    $prevContribution = $inputParams['prevContribution'];
-    $currentContribution = $inputParams['contribution'];
-    // ensure that there are all the information in updated contribution object identified by $currentContribution
-    $currentContribution->find(TRUE);
-
-    $deferredFinancialAccount = $inputParams['deferred_financial_account_id'] ?? NULL;
-    if (empty($deferredFinancialAccount)) {
-      $deferredFinancialAccount = CRM_Financial_BAO_FinancialAccount::getFinancialAccountForFinancialTypeByRelationship($prevContribution->financial_type_id, 'Deferred Revenue Account is');
-    }
-
-    $lastFinancialTrxnId = self::getFinancialTrxnId($prevContribution->id, 'DESC', FALSE, NULL, $deferredFinancialAccount);
-
-    // there is no point to proceed as we can't find the last payment made
-    // @todo we should throw an exception here rather than return false.
-    if (empty($lastFinancialTrxnId['financialTrxnId'])) {
-      return FALSE;
-    }
-
-    // If payment instrument is changed reverse the last payment
-    //  in terms of reversing financial item and trxn
-    $lastFinancialTrxn = civicrm_api3('FinancialTrxn', 'getsingle', ['id' => $lastFinancialTrxnId['financialTrxnId']]);
-    unset($lastFinancialTrxn['id']);
-    $lastFinancialTrxn['trxn_date'] = $inputParams['trxnParams']['trxn_date'];
-    $lastFinancialTrxn['total_amount'] = -$inputParams['trxnParams']['total_amount'];
-    $lastFinancialTrxn['net_amount'] = -$inputParams['trxnParams']['net_amount'];
-    $lastFinancialTrxn['fee_amount'] = -$inputParams['trxnParams']['fee_amount'];
-    $lastFinancialTrxn['contribution_id'] = $prevContribution->id;
-    foreach ([$lastFinancialTrxn, $inputParams['trxnParams']] as $financialTrxnParams) {
-      $trxn = CRM_Core_BAO_FinancialTrxn::create($financialTrxnParams);
-      $trxnParams = [
-        'total_amount' => $trxn->total_amount,
-        'contribution_id' => $currentContribution->id,
-      ];
-      CRM_Contribute_BAO_Contribution::assignProportionalLineItems($trxnParams, $trxn->id, $prevContribution->total_amount);
-    }
-
-    self::createDeferredTrxn($inputParams['line_item'] ?? NULL, $currentContribution, TRUE, 'changePaymentInstrument');
-
-    return TRUE;
   }
 
 }

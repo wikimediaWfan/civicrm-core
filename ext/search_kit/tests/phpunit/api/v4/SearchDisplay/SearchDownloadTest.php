@@ -3,8 +3,13 @@ namespace api\v4\SearchDisplay;
 
 use Civi\Api4\Activity;
 use Civi\Api4\Contact;
+use Civi\Api4\Contribution;
+use Civi\Api4\Event;
+use Civi\Api4\OptionValue;
 use Civi\Test\HeadlessInterface;
 use Civi\Test\TransactionalInterface;
+use PhpOffice\PhpSpreadsheet\Cell\DataType;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 
 /**
  * @group headless
@@ -58,7 +63,6 @@ class SearchDownloadTest extends \PHPUnit\Framework\TestCase implements Headless
             [
               'key' => 'subject',
               'label' => 'Duration Subject',
-              'dataType' => 'String',
               'type' => 'field',
               'rewrite' => '[duration] [subject]',
             ],
@@ -70,7 +74,6 @@ class SearchDownloadTest extends \PHPUnit\Framework\TestCase implements Headless
             [
               'key' => 'details',
               'label' => 'Details',
-              'dataType' => 'String',
               'type' => 'html',
             ],
           ],
@@ -99,18 +102,8 @@ class SearchDownloadTest extends \PHPUnit\Framework\TestCase implements Headless
 
   /**
    * Test downloading CSV format.
-   *
-   * Must run in separate process to capture direct output to browser
-   *
-   * @runInSeparateProcess
-   * @preserveGlobalState disabled
    */
   public function testDownloadCSV() {
-    $this->markTestIncomplete('Unable to get this test working in separate process, probably due to being in an extension');
-
-    // Re-enable because this test has to run in a separate process
-    \CRM_Extension_System::singleton()->getManager()->install('org.civicrm.search_kit');
-
     $lastName = uniqid(__FUNCTION__);
     $sampleData = [
       ['first_name' => 'One', 'last_name' => $lastName],
@@ -142,7 +135,6 @@ class SearchDownloadTest extends \PHPUnit\Framework\TestCase implements Headless
             [
               'key' => 'last_name',
               'label' => 'First Last',
-              'dataType' => 'String',
               'type' => 'field',
               'rewrite' => '[first_name] [last_name]',
             ],
@@ -156,20 +148,538 @@ class SearchDownloadTest extends \PHPUnit\Framework\TestCase implements Headless
       'afform' => NULL,
     ];
 
-    // UTF-8 BOM
-    $expectedOut = preg_quote("\xEF\xBB\xBF");
-    $expectedOut .= preg_quote('"First Last"');
-    foreach ($sampleData as $row) {
-      $expectedOut .= '\s+' . preg_quote('"' . $row['first_name'] . ' ' . $lastName . '"');
-    }
-    $this->expectOutputRegex('#' . $expectedOut . '#');
-
+    ob_start();
     try {
       civicrm_api4('SearchDisplay', 'download', $params);
       $this->fail();
     }
     catch (\CRM_Core_Exception_PrematureExitException $e) {
       // All good, we expected the api to exit
+    }
+    $csvOutput = ob_get_clean();
+
+    // Verify BOM and parse CSV
+    $this->assertStringStartsWith("\xEF\xBB\xBF", $csvOutput);
+    $csvWithoutBom = substr($csvOutput, 3);
+    $lines = preg_split('/\r\n|\r|\n/', rtrim($csvWithoutBom));
+    $rows = array_map(fn($line) => str_getcsv($line, ',', '"', '\\'), $lines);
+
+    // Header + 4 data rows
+    $this->assertCount(5, $rows);
+    $this->assertEquals(['First Last'], $rows[0]);
+    $this->assertEquals(['One ' . $lastName], $rows[1]);
+    $this->assertEquals(['Two ' . $lastName], $rows[2]);
+    $this->assertEquals(['Three ' . $lastName], $rows[3]);
+    $this->assertEquals(['Four ' . $lastName], $rows[4]);
+  }
+
+  /**
+   * Test downloading xlsx format.
+   */
+  public function testDownloadXlsxContact(): void {
+    $cid = Contact::create(FALSE)
+      ->setValues([
+        'first_name' => 'Test',
+        'birth_date' => '2020-05-23',
+        'do_not_email' => FALSE,
+        'do_not_mail' => TRUE,
+      ])->execute()->single()['id'];
+
+    $params = [
+      'checkPermissions' => FALSE,
+      'format' => 'xlsx',
+      'savedSearch' => [
+        'api_entity' => 'Contact',
+        'api_params' => [
+          'version' => 4,
+          'where' => [['id', '=', $cid]],
+        ],
+      ],
+      'display' => [
+        'type' => 'table',
+        'label' => 'test',
+        'settings' => [
+          'actions' => TRUE,
+          'columns' => [
+            [
+              'type' => 'field',
+              'key' => 'id',
+              'label' => 'Contact ID',
+            ],
+            [
+              'type' => 'field',
+              'key' => 'first_name',
+              'label' => 'First Name',
+              'link' => [
+                'path' => 'civicrm/contact/view?reset=1&cid=[id]',
+              ],
+            ],
+            [
+              'type' => 'field',
+              'key' => 'birth_date',
+              'label' => 'Birth Date',
+            ],
+            [
+              'type' => 'field',
+              'key' => 'do_not_email',
+              'label' => 'Do Not Email',
+            ],
+            [
+              'type' => 'field',
+              'key' => 'do_not_mail',
+              'label' => 'Do Not Mail (rewrite)',
+              'rewrite' => 'rewrite: [do_not_mail]',
+            ],
+          ],
+        ],
+      ],
+      'afform' => NULL,
+    ];
+
+    ob_start();
+    try {
+      civicrm_api4('SearchDisplay', 'download', $params);
+      static::fail();
+    }
+    catch (\CRM_Core_Exception_PrematureExitException $e) {
+      // All good, we expected the api to exit
+    }
+
+    $xlsx = ob_get_clean();
+    $tmpFile = tempnam(sys_get_temp_dir(), 'SearchDownloadTestXslx');
+    try {
+      file_put_contents($tmpFile, $xlsx);
+      $reader = IOFactory::createReader('Xlsx');
+      $spreadsheet = $reader->load($tmpFile);
+      $sheet = $spreadsheet->getSheet(0);
+
+      static::assertSame(2, $sheet->getHighestRow());
+      static::assertSame('E', $sheet->getHighestColumn());
+
+      static::assertSame('Contact ID', $sheet->getCell('A1')->getValue());
+      static::assertSame($cid, $sheet->getCell('A2')->getValue());
+      static::assertSame(DataType::TYPE_NUMERIC, $sheet->getCell('A2')->getDataType());
+      static::assertSame('General', $sheet->getCell('A2')->getStyle()->getNumberFormat()->getFormatCode());
+
+      static::assertSame('First Name', $sheet->getCell('B1')->getValue());
+      static::assertSame('Test', $sheet->getCell('B2')->getValue());
+      static::assertSame(DataType::TYPE_STRING, $sheet->getCell('B2')->getDataType());
+      static::assertTrue($sheet->getCell('B2')->hasHyperlink());
+      static::assertSame((string) \Civi::url('civicrm/contact/view?reset=1&cid=' . $cid, 'a'), $sheet->getCell('B2')->getHyperlink()->getUrl());
+
+      static::assertSame('Birth Date', $sheet->getCell('C1')->getValue());
+      static::assertSame(43974.0, $sheet->getCell('C2')->getValue());
+      static::assertSame(DataType::TYPE_NUMERIC, $sheet->getCell('C2')->getDataType());
+      static::assertSame('mmmm d, yyyy', $sheet->getCell('C2')->getStyle()->getNumberFormat()->getFormatCode());
+
+      static::assertSame('Do Not Email', $sheet->getCell('D1')->getValue());
+      static::assertFalse($sheet->getCell('D2')->getValue());
+      static::assertSame(DataType::TYPE_BOOL, $sheet->getCell('D2')->getDataType());
+
+      static::assertSame('Do Not Mail (rewrite)', $sheet->getCell('E1')->getValue());
+      static::assertSame('rewrite: 1', $sheet->getCell('E2')->getValue());
+      static::assertSame(DataType::TYPE_STRING, $sheet->getCell('E2')->getDataType());
+    }
+    finally {
+      unlink($tmpFile);
+    }
+  }
+
+  /**
+   * Test downloading xlsx format.
+   */
+  public function testDownloadXlsxEvent(): void {
+    $eventTypeId = OptionValue::create(FALSE)
+      ->setValues([
+        'option_group_id.name' => 'event_type',
+        'name' => 'test',
+        'label' => 'test',
+      ])
+      ->execute()->single()['value'];
+    $eventId = Event::create(FALSE)
+      ->setValues([
+        'title' => 'test',
+        'event_type_id' => $eventTypeId,
+        'start_date' => '2020-05-23',
+        'end_date' => '2020-05-24 01:02:03',
+        'min_initial_amount' => 1.23,
+      ])->execute()->single()['id'];
+    // API doesn't allow to set created_date.
+    \CRM_Core_DAO::executeQuery('UPDATE civicrm_contact SET created_date = "2025-05-23 01:02:03" WHERE id = ' . $eventId);
+
+    $params = [
+      'checkPermissions' => FALSE,
+      'format' => 'xlsx',
+      'savedSearch' => [
+        'api_entity' => 'Event',
+        'api_params' => [
+          'version' => 4,
+          'where' => [['id', '=', $eventId]],
+        ],
+      ],
+      'display' => [
+        'type' => 'table',
+        'label' => 'test',
+        'settings' => [
+          'actions' => TRUE,
+          'columns' => [
+            [
+              'type' => 'field',
+              'key' => 'id',
+              'label' => 'Event ID',
+            ],
+            [
+              'type' => 'field',
+              'key' => 'start_date',
+              'label' => 'Start Date',
+              // Use default format.
+              'format' => '',
+            ],
+            [
+              'type' => 'field',
+              'key' => 'end_date',
+              'label' => 'End Date',
+              'format' => 'dateformatshortdate',
+            ],
+            [
+              'type' => 'field',
+              'key' => 'min_initial_amount',
+              'label' => 'Minimum Initial Amount',
+            ],
+          ],
+        ],
+      ],
+      'afform' => NULL,
+    ];
+
+    ob_start();
+    try {
+      civicrm_api4('SearchDisplay', 'download', $params);
+      static::fail();
+    }
+    catch (\CRM_Core_Exception_PrematureExitException $e) {
+      // All good, we expected the api to exit
+    }
+
+    $xlsx = ob_get_clean();
+    $tmpFile = tempnam(sys_get_temp_dir(), 'SearchDownloadTestXslx');
+    try {
+      file_put_contents($tmpFile, $xlsx);
+      $reader = IOFactory::createReader('Xlsx');
+      $spreadsheet = $reader->load($tmpFile);
+      $sheet = $spreadsheet->getSheet(0);
+
+      static::assertSame(2, $sheet->getHighestRow());
+      static::assertSame('D', $sheet->getHighestColumn());
+
+      static::assertSame('Event ID', $sheet->getCell('A1')->getValue());
+      static::assertSame($eventId, $sheet->getCell('A2')->getValue());
+      static::assertSame(DataType::TYPE_NUMERIC, $sheet->getCell('A2')->getDataType());
+      static::assertSame('General', $sheet->getCell('A2')->getStyle()->getNumberFormat()->getFormatCode());
+
+      static::assertSame('Start Date', $sheet->getCell('B1')->getValue());
+      static::assertSame(43974.0, $sheet->getCell('B2')->getValue());
+      static::assertSame(DataType::TYPE_NUMERIC, $sheet->getCell('B2')->getDataType());
+      static::assertSame('mmmm d, yyyy  h:mm AM/PM', $sheet->getCell('B2')->getStyle()->getNumberFormat()->getFormatCode());
+
+      static::assertSame('End Date', $sheet->getCell('C1')->getValue());
+      static::assertEqualsWithDelta(43975.043090278, $sheet->getCell('C2')->getValue(), 0.00001);
+      static::assertSame(DataType::TYPE_NUMERIC, $sheet->getCell('C2')->getDataType());
+      static::assertSame('mm/dd/yyyy', $sheet->getCell('C2')->getStyle()->getNumberFormat()->getFormatCode());
+
+      static::assertSame('Minimum Initial Amount', $sheet->getCell('D1')->getValue());
+      static::assertSame(1.23, $sheet->getCell('D2')->getValue());
+      static::assertSame(DataType::TYPE_NUMERIC, $sheet->getCell('D2')->getDataType());
+      static::assertSame('[$$-en-US]#,##0.00', $sheet->getCell('D2')->getStyle()->getNumberFormat()->getFormatCode());
+    }
+    finally {
+      unlink($tmpFile);
+    }
+  }
+
+  /**
+   * Test downloading pdf format with hyperlinks.
+   */
+  public function testDownloadPdfContact(): void {
+    $cid = Contact::create(FALSE)
+      ->setValues([
+        'first_name' => 'Test',
+      ])->execute()->single()['id'];
+
+    $params = [
+      'checkPermissions' => FALSE,
+      'format' => 'pdf',
+      'savedSearch' => [
+        'api_entity' => 'Contact',
+        'api_params' => [
+          'version' => 4,
+          'where' => [['id', '=', $cid]],
+        ],
+      ],
+      'display' => [
+        'type' => 'table',
+        'label' => 'test',
+        'settings' => [
+          'actions' => TRUE,
+          'columns' => [
+            [
+              'type' => 'field',
+              'key' => 'id',
+              'label' => 'Contact ID',
+            ],
+            [
+              'type' => 'field',
+              'key' => 'first_name',
+              'label' => 'First Name',
+              'link' => [
+                'path' => 'civicrm/contact/view?reset=1&cid=[id]',
+              ],
+            ],
+          ],
+        ],
+      ],
+      'afform' => NULL,
+    ];
+
+    ob_start();
+    try {
+      civicrm_api4('SearchDisplay', 'download', $params);
+      static::fail();
+    }
+    catch (\CRM_Core_Exception_PrematureExitException $e) {
+      // All good, we expected the api to exit
+    }
+
+    $pdf = ob_get_clean();
+    static::assertSame('%PDF', substr($pdf, 0, 4));
+    static::assertStringContainsString('civicrm/contact/view', $pdf);
+  }
+
+  /**
+   * Test downloading xlsx when a joined Money field (Contribution.total_amount)
+   * has a link set. Before the fix, this threw a TypeError:
+   * "formatLink(): Argument #5 ($index) must be of type ?int, string given"
+   * because the Money value is stored as an associative array
+   * ['currency' => ..., 'value' => ...] during spreadsheet output, and its
+   * string keys were mistakenly passed as the $index parameter.
+   */
+  public function testDownloadXlsxContactWithContributionLink(): void {
+    $cid = Contact::create(FALSE)
+      ->setValues(['first_name' => 'LinkTest'])
+      ->execute()->single()['id'];
+    Contribution::create(FALSE)
+      ->setValues([
+        'contact_id' => $cid,
+        'financial_type_id:name' => 'Donation',
+        'total_amount' => 99.99,
+        'receive_date' => '2024-01-01',
+      ])
+      ->execute();
+
+    $params = [
+      'checkPermissions' => FALSE,
+      'format' => 'xlsx',
+      'savedSearch' => [
+        'api_entity' => 'Contact',
+        'api_params' => [
+          'version' => 4,
+          'select' => ['id', 'Contribution_Contact_contact_id_01.total_amount'],
+          'join' => [
+            ['Contribution AS Contribution_Contact_contact_id_01', 'INNER', NULL, ['id', '=', 'Contribution_Contact_contact_id_01.contact_id']],
+          ],
+          'where' => [['id', '=', $cid]],
+        ],
+      ],
+      'display' => [
+        'type' => 'table',
+        'label' => 'test',
+        'settings' => [
+          'actions' => TRUE,
+          'columns' => [
+            [
+              'type' => 'field',
+              'key' => 'id',
+              'label' => 'Contact ID',
+            ],
+            [
+              'type' => 'field',
+              'key' => 'Contribution_Contact_contact_id_01.total_amount',
+              'label' => 'Amount',
+              // Link on a Money field is the scenario that triggered the bug.
+              'link' => [
+                'path' => 'civicrm/contact/view?reset=1&cid=[id]',
+              ],
+            ],
+          ],
+        ],
+      ],
+      'afform' => NULL,
+    ];
+
+    ob_start();
+    try {
+      civicrm_api4('SearchDisplay', 'download', $params);
+      static::fail();
+    }
+    catch (\CRM_Core_Exception_PrematureExitException $e) {
+      // All good, we expected the api to exit
+    }
+
+    $xlsx = ob_get_clean();
+    $tmpFile = tempnam(sys_get_temp_dir(), 'SearchDownloadTestContribLink');
+    try {
+      file_put_contents($tmpFile, $xlsx);
+      $reader = IOFactory::createReader('Xlsx');
+      $spreadsheet = $reader->load($tmpFile);
+      $sheet = $spreadsheet->getSheet(0);
+
+      static::assertSame(2, $sheet->getHighestRow());
+      static::assertSame('B', $sheet->getHighestColumn());
+
+      static::assertSame('Contact ID', $sheet->getCell('A1')->getValue());
+      static::assertSame($cid, $sheet->getCell('A2')->getValue());
+
+      static::assertSame('Amount', $sheet->getCell('B1')->getValue());
+      static::assertSame(99.99, $sheet->getCell('B2')->getValue());
+      // The link on the Money column should be set.
+      static::assertTrue($sheet->getCell('B2')->hasHyperlink());
+      static::assertStringContainsString('civicrm/contact/view', $sheet->getCell('B2')->getHyperlink()->getUrl());
+    }
+    finally {
+      unlink($tmpFile);
+    }
+  }
+
+  /**
+   * Test that Money fields are exported as raw numbers in machine-readable
+   * download formats (csv and array).
+   *
+   * Currency symbols and locale formatting must be absent so the values
+   * remain importable by spreadsheet applications without manual cleanup.
+   */
+  public function testDownloadArrayMoney(): void {
+    $cid = Contact::create(FALSE)->execute()->single()['id'];
+    \Civi\Api4\Contribution::create(FALSE)
+      ->setValues([
+        'contact_id' => $cid,
+        'total_amount' => 1234.56,
+        'financial_type_id:name' => 'Donation',
+      ])->execute();
+
+    $params = [
+      'checkPermissions' => FALSE,
+      'format' => 'array',
+      'savedSearch' => [
+        'api_entity' => 'Contribution',
+        'api_params' => [
+          'version' => 4,
+          'select' => ['total_amount'],
+          'where' => [['contact_id', '=', $cid]],
+        ],
+      ],
+      'display' => [
+        'type' => 'table',
+        'label' => 'test',
+        'settings' => [
+          'actions' => TRUE,
+          'columns' => [
+            [
+              'type' => 'field',
+              'key' => 'total_amount',
+              'label' => 'Total Amount',
+            ],
+          ],
+        ],
+      ],
+      'afform' => NULL,
+    ];
+
+    $result = (array) civicrm_api4('SearchDisplay', 'download', $params);
+    // Row 0 is the header row, row 1 is the data row.
+    static::assertSame('Total Amount', $result[0][0]);
+    // Value must be the raw number, not a currency-formatted string.
+    static::assertSame(1234.56, $result[1][0]);
+  }
+
+  /**
+   * Test that Money fields with format 'number' are exported to XLSX as raw numeric values.
+   */
+  public function testDownloadXlsxMoney(): void {
+    $cid = Contact::create(FALSE)->execute()->single()['id'];
+    \Civi\Api4\Contribution::create(FALSE)
+      ->setValues([
+        'contact_id' => $cid,
+        'total_amount' => 1234.56,
+        'non_deductible_amount' => 1234.56,
+        'financial_type_id:name' => 'Donation',
+      ])->execute();
+
+    $params = [
+      'checkPermissions' => FALSE,
+      'format' => 'xlsx',
+      'savedSearch' => [
+        'api_entity' => 'Contribution',
+        'api_params' => [
+          'version' => 4,
+          'select' => ['total_amount', 'non_deductible_amount'],
+          'where' => [['contact_id', '=', $cid]],
+        ],
+      ],
+      'display' => [
+        'type' => 'table',
+        'label' => 'test',
+        'settings' => [
+          'actions' => TRUE,
+          'columns' => [
+            [
+              'type' => 'field',
+              'key' => 'total_amount',
+              'label' => 'Total Amount',
+              'format' => 'number',
+            ],
+            [
+              'type' => 'field',
+              'key' => 'non_deductible_amount',
+              'label' => 'Non Amount',
+            ],
+          ],
+        ],
+      ],
+      'afform' => NULL,
+    ];
+
+    ob_start();
+    try {
+      civicrm_api4('SearchDisplay', 'download', $params);
+      static::fail();
+    }
+    catch (\CRM_Core_Exception_PrematureExitException $e) {
+      // Expected API exit
+    }
+
+    $xlsx = ob_get_clean();
+    $tmpFile = tempnam(sys_get_temp_dir(), 'SearchDownloadTestXslx');
+    try {
+      file_put_contents($tmpFile, $xlsx);
+      $reader = IOFactory::createReader('Xlsx');
+      $spreadsheet = $reader->load($tmpFile);
+      $sheet = $spreadsheet->getSheet(0);
+
+      static::assertSame(2, $sheet->getHighestRow());
+      static::assertSame('B', $sheet->getHighestColumn());
+
+      static::assertSame('Total Amount', $sheet->getCell('A1')->getValue());
+      static::assertSame(1234.56, $sheet->getCell('A2')->getValue());
+      static::assertSame(DataType::TYPE_NUMERIC, $sheet->getCell('A2')->getDataType());
+      static::assertSame('General', $sheet->getCell('A2')->getStyle()->getNumberFormat()->getFormatCode());
+
+      static::assertSame('Non Amount', $sheet->getCell('B1')->getValue());
+      static::assertSame(1234.56, $sheet->getCell('B2')->getValue());
+      static::assertSame(DataType::TYPE_NUMERIC, $sheet->getCell('B2')->getDataType());
+      static::assertSame('[$$-en-US]#,##0.00', $sheet->getCell('B2')->getStyle()->getNumberFormat()->getFormatCode());
+    }
+    finally {
+      unlink($tmpFile);
     }
   }
 

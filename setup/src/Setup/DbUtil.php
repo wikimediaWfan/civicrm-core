@@ -27,13 +27,13 @@ class DbUtil {
       $database = $parsed['path'] ? ltrim($parsed['path'], '/') : NULL;
     }
 
-    return array(
+    return [
       'server' => $server,
       'username' => $parsed['user'] ?: NULL,
       'password' => $parsed['pass'] ?? NULL,
       'database' => $database,
       'ssl_params' => self::parseSSL($parsed['query'] ?? NULL),
-    );
+    ];
   }
 
   /**
@@ -87,6 +87,10 @@ class DbUtil {
    * @throws SqlException
    */
   public static function connect($db) {
+    if (!extension_loaded('mysqli')) {
+      throw new SqlException(sprintf("Connection failed: Missing mysqli\n"));
+    }
+
     // During installation, we need to test proposed credentials. Ensure that tests report failure the same way on php7+php8.
     if (version_compare(PHP_VERSION, '8', '>=')) {
       mysqli_report(MYSQLI_REPORT_OFF);
@@ -133,7 +137,7 @@ class DbUtil {
         $host = implode(':', $hostParts);
       }
     }
-    return array($host, $port, $socket);
+    return [$host, $port, $socket];
   }
 
   /**
@@ -274,7 +278,7 @@ class DbUtil {
       throw new SqlException("Cannot execute $sql: " . $conn->error);
     }
 
-    $rows = array();
+    $rows = [];
     while ($row = $result->fetch_assoc()) {
       $rows[] = $row;
     }

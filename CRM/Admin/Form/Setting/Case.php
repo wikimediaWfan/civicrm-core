@@ -16,23 +16,8 @@
  */
 
 /**
- * This class generates form components for CiviCase.
+ * Setting form for CiviCase.
  */
-class CRM_Admin_Form_Setting_Case extends CRM_Admin_Form_Setting {
-
-  protected $_settings = [
-    'civicaseRedactActivityEmail' => CRM_Core_BAO_Setting::SYSTEM_PREFERENCES_NAME,
-    'civicaseAllowMultipleClients' => CRM_Core_BAO_Setting::SYSTEM_PREFERENCES_NAME,
-    'civicaseNaturalActivityTypeSort' => CRM_Core_BAO_Setting::SYSTEM_PREFERENCES_NAME,
-    'civicaseShowCaseActivities' => CRM_Core_BAO_Setting::SYSTEM_PREFERENCES_NAME,
-  ];
-
-  /**
-   * Build the form object.
-   */
-  public function buildQuickForm() {
-    $this->setTitle(ts('Settings - CiviCase'));
-    parent::buildQuickForm();
-  }
+class CRM_Admin_Form_Setting_Case extends CRM_Admin_Form_Generic {
 
 }

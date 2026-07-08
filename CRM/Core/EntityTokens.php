@@ -17,6 +17,7 @@ use Civi\Token\TokenRow;
 use Civi\ActionSchedule\Event\MailingQueryEvent;
 use Civi\Token\TokenProcessor;
 use Brick\Money\Money;
+use Brick\Math\RoundingMode;
 
 /**
  * Class CRM_Core_EntityTokens
@@ -126,8 +127,7 @@ class CRM_Core_EntityTokens extends AbstractTokenSubscriber {
       }
 
       return $row->format('text/plain')->tokens($entity, $field,
-        Money::of($fieldValue, $currency));
-
+        Money::of((string) $fieldValue, $currency, NULL, RoundingMode::HALF_UP));
     }
     if ($this->isDateField($field)) {
       try {
@@ -236,7 +236,7 @@ class CRM_Core_EntityTokens extends AbstractTokenSubscriber {
    * @return bool
    */
   protected function isPseudoField(string $fieldName): bool {
-    return strpos($fieldName, ':') !== FALSE;
+    return str_contains($fieldName, ':');
   }
 
   /**
@@ -306,7 +306,10 @@ class CRM_Core_EntityTokens extends AbstractTokenSubscriber {
    * @internal function will likely be protected soon.
    */
   protected function getPseudoValue(string $realField, string $pseudoKey, $fieldValue): string {
-    $bao = CRM_Core_DAO_AllCoreTables::getFullName($this->getMetadataForField($realField)['entity']);
+    // If the field name is in the format 'entity.field' then we need to just get 'field'
+    $explode = explode('.', $realField);
+    $realField = end($explode);
+    $bao = CRM_Core_DAO_AllCoreTables::getDAONameForEntity($this->getMetadataForField($realField)['entity']);
     if ($pseudoKey === 'name') {
       // There is a theoretical possibility fieldValue could be an array but
       // specifically for preferred communication type - but real world usage
@@ -322,9 +325,17 @@ class CRM_Core_EntityTokens extends AbstractTokenSubscriber {
       }
       $fieldValue = implode(', ', $newValue);
     }
-    if ($pseudoKey === 'abbr' && $realField === 'state_province_id') {
-      // hack alert - currently only supported for state.
-      $fieldValue = (string) CRM_Core_PseudoConstant::stateProvinceAbbreviation($fieldValue);
+    if ($pseudoKey === 'abbr' && $fieldValue) {
+      // hack alert - currently only supported for country and state.
+      switch ($realField) {
+        case 'state_province_id':
+          $fieldValue = CRM_Core_PseudoConstant::stateProvinceAbbreviation($fieldValue);
+          break;
+
+        case 'country_id':
+          $fieldValue = CRM_Core_PseudoConstant::countryIsoCode($fieldValue);
+          break;
+      }
     }
     return (string) $fieldValue;
   }
@@ -332,7 +343,7 @@ class CRM_Core_EntityTokens extends AbstractTokenSubscriber {
   /**
    * @param \Civi\Token\TokenRow $row
    * @param string $field
-   * @return string|int
+   * @return string|int|float
    */
   protected function getFieldValue(TokenRow $row, string $field) {
     $entityName = $this->getEntityName();
@@ -344,7 +355,7 @@ class CRM_Core_EntityTokens extends AbstractTokenSubscriber {
     if ($field === 'id') {
       return $entityID;
     }
-    return $this->prefetch[$entityID][$field] ?? '';
+    return $this->prefetch[$entityID ?? ''][$field] ?? '';
   }
 
   /**
@@ -362,9 +373,13 @@ class CRM_Core_EntityTokens extends AbstractTokenSubscriber {
    * @return bool
    */
   public function checkActive(TokenProcessor $processor) {
+    $isEntityEnabled = in_array($this->getApiEntityName(), array_keys(\Civi::service('action_object_provider')->getEntities()));
+    if (!$isEntityEnabled) {
+      return FALSE;
+    }
     return ((!empty($processor->context['actionMapping'])
         // This makes the 'schema context compulsory - which feels accidental
-      && $processor->context['actionMapping']->getEntityName()) || in_array($this->getEntityIDField(), $processor->context['schema'])) && in_array($this->getApiEntityName(), array_keys(\Civi::service('action_object_provider')->getEntities()));
+      && $processor->context['actionMapping']->getEntityName()) || in_array($this->getEntityIDField(), $processor->context['schema']));
   }
 
   /**
@@ -435,7 +450,7 @@ class CRM_Core_EntityTokens extends AbstractTokenSubscriber {
     // 'not a real field' offered up by case - seems like an oddity
     // we should skip at the top level for now.
     $fields = ['tags'];
-    if (!CRM_Campaign_BAO_Campaign::isComponentEnabled()) {
+    if (!CRM_Core_Component::isEnabled('CiviCampaign')) {
       $fields[] = 'campaign_id';
     }
     return $fields;
@@ -465,6 +480,11 @@ class CRM_Core_EntityTokens extends AbstractTokenSubscriber {
       'select' => $select,
       'where' => [['id', 'IN', $entityIDs]],
     ], 'id');
+    if ($result) {
+      foreach ($e->getRows() as $row) {
+        $row->context($this->entity, $result[$row->context[$this->getEntityIDField()]]);
+      }
+    }
     return $result;
   }
 
@@ -544,10 +564,13 @@ class CRM_Core_EntityTokens extends AbstractTokenSubscriber {
    * @param string $field eg. 'custom_1'
    *
    * @return array|string|void|null $mixed
-   *
-   * @throws \CRM_Core_Exception
    */
   protected function getCustomFieldValue($entityID, string $field) {
+    if (!$entityID) {
+      // e.g. this gets called from testSubmitUnpaidPriceChangeWithContributionToken trying
+      /// to get a contribution token.
+      return NULL;
+    }
     $id = str_replace('custom_', '', $field);
     try {
       $value = $this->prefetch[$entityID][$this->getCustomFieldName($id)] ?? '';
@@ -656,7 +679,7 @@ class CRM_Core_EntityTokens extends AbstractTokenSubscriber {
       // the space open for that.
       // Not the existing QuickForm widget has handling for the custom field
       // format based on the title using this syntax.
-      $parts = explode(': ', $field['label']);
+      $parts = explode(': ', $field['label'], 2);
       $field['title'] = "{$parts[1]} :: {$parts[0]}";
       $tokenName = 'custom_' . $field['custom_field_id'];
       $tokensMetadata[$tokenName] = $field;

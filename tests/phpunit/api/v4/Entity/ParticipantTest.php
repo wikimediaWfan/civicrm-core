@@ -19,27 +19,19 @@
 
 namespace api\v4\Entity;
 
+use Civi\Api4\Contact;
 use Civi\Api4\Event;
 use Civi\Api4\Participant;
 use api\v4\Api4TestBase;
-use Civi\Test\TransactionalInterface;
 
 /**
  * @group headless
  */
-class ParticipantTest extends Api4TestBase implements TransactionalInterface {
+class ParticipantTest extends Api4TestBase {
 
-  public function setUp(): void {
-    parent::setUp();
-    $cleanup_params = [
-      'tablesToTruncate' => [
-        'civicrm_event',
-        'civicrm_participant',
-      ],
-    ];
-    $this->cleanup($cleanup_params);
-  }
-
+  /**
+   * @throws \CRM_Core_Exception
+   */
   public function testGetActions(): void {
     $result = Participant::getActions(FALSE)
       ->execute()
@@ -52,11 +44,11 @@ class ParticipantTest extends Api4TestBase implements TransactionalInterface {
     $this->assertStringContainsString($whereDescription, $getParams['where']['description']);
   }
 
+  /**
+   * @throws \CRM_Core_Exception
+   */
   public function testGet(): void {
-    $rows = $this->getRowCount('civicrm_participant');
-    if ($rows > 0) {
-      $this->fail('Participant table must be empty');
-    }
+    Participant::delete(FALSE)->addWhere('id', '>', 0)->execute();
 
     // With no records:
     $result = Participant::get(FALSE)->execute();
@@ -96,7 +88,7 @@ class ParticipantTest extends Api4TestBase implements TransactionalInterface {
         'source' => $dummy['sources'][$i % 3],
       ];
     }
-    $this->saveTestRecords('Participant', [
+    $pid = $this->saveTestRecords('Participant', [
       'records' => $records,
       'defaults' => [
         'status_id' => 2,
@@ -104,7 +96,7 @@ class ParticipantTest extends Api4TestBase implements TransactionalInterface {
         'register_date' => 20070219,
         'event_level' => 'Payment',
       ],
-    ]);
+    ])->column('id');
     $sqlCount = $this->getRowCount('civicrm_participant');
     $this->assertEquals($participantCount, $sqlCount, "Unexpected count");
 
@@ -116,8 +108,7 @@ class ParticipantTest extends Api4TestBase implements TransactionalInterface {
       ->addClause('AND', ['event_id', '=', $firstEventId])
       ->execute();
 
-    $this->assertEquals($expectedFirstEventCount, count($firstOnlyResult),
-      "count of first event is not $expectedFirstEventCount");
+    $this->assertCount($expectedFirstEventCount, $firstOnlyResult, "count of first event is not $expectedFirstEventCount");
 
     // get first two events using different methods
     $firstTwo = Participant::get(FALSE)
@@ -145,7 +136,7 @@ class ParticipantTest extends Api4TestBase implements TransactionalInterface {
       ->addWhere('contact_id', '=', $firstContactId)
       ->execute();
 
-    $this->assertEquals(1, count($firstParticipantResult), "more than one registration");
+    $this->assertCount(1, $firstParticipantResult, 'more than one registration');
 
     $firstParticipantId = $firstParticipantResult->first()['id'];
 
@@ -171,9 +162,9 @@ class ParticipantTest extends Api4TestBase implements TransactionalInterface {
 
     $this->assertEquals($otherParticipantResult, $otherParticipantResult2);
 
-    $this->assertEquals($participantCount - 1,
-      count($otherParticipantResult),
-      "failed to exclude a single record on complex criteria");
+    $this->assertCount($participantCount - 1,
+      $otherParticipantResult,
+      'failed to exclude a single record on complex criteria');
     // check the record we have excluded is the right one:
 
     $this->assertFalse(
@@ -222,9 +213,9 @@ class ParticipantTest extends Api4TestBase implements TransactionalInterface {
       ->addWhere('event_id', '=', $secondEventId)
       ->setCheckPermissions(FALSE)
       ->execute();
-    $expectedDeletes = [2, 7, 12, 17];
+    $expectedDeletes = [$pid[1], $pid[6], $pid[11], $pid[16]];
     $this->assertEquals($expectedDeletes, array_column((array) $deleteResult, 'id'),
-      "didn't delete every second record as expected");
+      "didn't delete every 5th record as expected");
 
     $sqlCount = $this->getRowCount('civicrm_participant');
     $this->assertEquals(
@@ -252,6 +243,9 @@ class ParticipantTest extends Api4TestBase implements TransactionalInterface {
     $this->assertCount(1, Participant::get()->selectRowCount()->addWhere('id', '=', $testParticipants->first()['id'])->execute());
   }
 
+  /**
+   * @throws \CRM_Core_Exception
+   */
   public function testGetRemainingParticipants(): void {
     $eventWithMax = $this->createTestRecord('Event', ['max_participants' => 3])['id'];
     $eventUnlimited = $this->createTestRecord('Event', ['max_participants' => 0])['id'];
@@ -266,6 +260,12 @@ class ParticipantTest extends Api4TestBase implements TransactionalInterface {
     $this->assertNull($events[1]['remaining_participants']);
 
     $deleted = $this->createTestRecord('Contact', ['is_deleted' => TRUE])['id'];
+    $this->createTestRecord('OptionValue', [
+      'option_group_id:name' => 'participant_role',
+      'filter' => 0,
+      'label' => 'invisible man',
+      'name' => 'spy',
+    ]);
 
     $this->saveTestRecords('Participant', [
       'records' => [
@@ -274,6 +274,7 @@ class ParticipantTest extends Api4TestBase implements TransactionalInterface {
         ['event_id' => $eventWithMax, 'status_id:name' => 'Attended'],
         // None of these should count toward $eventWithMax participant limit
         ['event_id' => $eventWithMax, 'status_id:name' => 'Registered', 'contact_id' => $deleted],
+        ['event_id' => $eventWithMax, 'status_id:name' => 'Registered', 'role_id:name' => 'spy'],
         ['event_id' => $eventWithMax, 'status_id:name' => 'Cancelled'],
         ['event_id' => $eventUnlimited, 'status_id:name' => 'Registered'],
       ],
@@ -309,6 +310,112 @@ class ParticipantTest extends Api4TestBase implements TransactionalInterface {
     $this->assertEquals(-1, $events[0]['remaining_participants']);
     // `remaining_participants` is always NULL for unlimited events
     $this->assertNull($events[1]['remaining_participants']);
+  }
+
+  public function testFilterByRole(): void {
+    $this->createTestRecord('OptionValue', [
+      'option_group_id:name' => 'participant_role',
+      'label' => 'Role1',
+      'name' => 'role_1',
+    ]);
+    $this->createTestRecord('OptionValue', [
+      'option_group_id:name' => 'participant_role',
+      'label' => 'Role2',
+      'name' => 'role_2',
+    ]);
+    $cid = $this->saveTestRecords('Contact', ['records' => 3])->column('id');
+    $participants = $this->saveTestRecords('Participant', [
+      'records' => [
+        ['role_id:name' => 'role_1', 'contact_id' => $cid[0]],
+        ['role_id:name' => 'role_2', 'contact_id' => $cid[1]],
+        ['role_id:name' => ['role_1', 'role_2'], 'contact_id' => $cid[2]],
+      ],
+    ])->column('id');
+
+    $hasRole1 = Participant::get(FALSE)
+      ->addSelect('id')
+      ->addWhere('role_id:name', 'CONTAINS', ['role_1'])
+      ->execute()->column('id');
+    $this->assertEquals([$participants[0], $participants[2]], $hasRole1);
+
+    $hasRole2 = Participant::get(FALSE)
+      ->addSelect('id')
+      ->addWhere('role_id:name', 'CONTAINS', 'role_2')
+      ->execute()->column('id');
+    $this->assertEquals([$participants[1], $participants[2]], $hasRole2);
+
+    $notHasRole1 = Participant::get(FALSE)
+      ->addSelect('id')
+      ->addWhere('role_id:name', 'NOT CONTAINS', 'role_1')
+      ->execute()->column('id');
+    $this->assertEquals([$participants[1]], $notHasRole1);
+
+    $contactWithBothRoles = Contact::get(FALSE)
+      ->addJoin('Participant AS participant', 'INNER',
+        ['id', '=', 'participant.contact_id'],
+        ['participant.role_id:name', 'CONTAINS', ['role_1', 'role_2']],
+      )
+      ->execute()->single();
+    $this->assertEquals($cid[2], $contactWithBothRoles['id']);
+
+    $contactWithEitherRoles = Contact::get(FALSE)
+      ->addJoin('Participant AS participant', 'INNER',
+        ['id', '=', 'participant.contact_id'],
+        ['participant.role_id:name', 'CONTAINS ONE OF', ['role_1', 'role_2']],
+      )
+      ->execute();
+    $this->assertEquals($cid, $contactWithEitherRoles->column('id'));
+
+    $contactWithOneRole = Contact::get(FALSE)
+      ->addJoin('Participant AS participant', 'INNER',
+        ['id', '=', 'participant.contact_id'],
+        ['participant.role_id:name', 'CONTAINS ONE OF', ['role_1', 'role_2']],
+        ['participant.role_id:name', 'NOT CONTAINS', ['role_1', 'role_2']],
+      )
+      ->setDebug(TRUE)
+      ->execute();
+    $this->assertEquals([$cid[0], $cid[1]], $contactWithOneRole->column('id'));
+
+    $contactWithFirstRole = Contact::get(FALSE)
+      ->addJoin('Participant AS participant', 'INNER',
+        ['id', '=', 'participant.contact_id'],
+        ['participant.role_id:name', 'CONTAINS ONE OF', ['role_1', 'role_2']],
+        ['participant.role_id:name', 'NOT CONTAINS ONE OF', ['role_2']],
+      )
+      ->setDebug(TRUE)
+      ->execute();
+    $this->assertEquals([$cid[0]], $contactWithFirstRole->column('id'));
+  }
+
+  public function testUpdateStatusWithMultipleRoles(): void {
+    $role1 = $this->createTestRecord('OptionValue', [
+      'option_group_id:name' => 'participant_role',
+      'label' => 'Role1',
+      'name' => 'role_1',
+    ]);
+    $role2 = $this->createTestRecord('OptionValue', [
+      'option_group_id:name' => 'participant_role',
+      'label' => 'Role2',
+      'name' => 'role_2',
+    ]);
+    $cid = $this->createTestRecord('Contact')['id'];
+    $eventId = $this->createTestRecord('Event')['id'];
+    $participantId = Participant::create(FALSE)
+      ->addValue('contact_id', $cid)
+      ->addValue('event_id', $eventId)
+      ->addValue('role_id:name', ['role_1', 'role_2'])
+      ->execute()->first()['id'];
+
+    $participant = new \CRM_Event_BAO_Participant();
+    $participant->id = $participantId;
+    $participant->event_id = $eventId;
+    $participant->contact_id = $cid;
+    $participant->role_id = [$role1['value'], $role2['value']];
+    $participant->status_id = 1;
+
+    $subject = \CRM_Activity_BAO_Activity::getActivitySubject($participant);
+    $this->assertStringContainsString('Role1', $subject);
+    $this->assertStringContainsString('Role2', $subject);
   }
 
   /**

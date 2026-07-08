@@ -57,19 +57,25 @@ class ActivityLinksProvider extends \Civi\Core\Service\AutoSubscriber {
           array_splice($links, $addLinkIndex, 1, $addLinks);
         }
       }
-      // With an activity type provided, alter path of edit links appropriately
-      $activityType = $request->getValue('activity_type_id:name');
-      $activityId = $request->getValue('id');
-      // Lookup activity type from id
-      if (!$activityType && $activityId) {
-        $activityTypeId = \CRM_Core_DAO::getFieldValue('CRM_Activity_DAO_Activity', $activityId, 'activity_type_id');
-        $activityType = \CRM_Core_PseudoConstant::getName('CRM_Activity_DAO_Activity', 'activity_type_id', $activityTypeId);
-      }
-      if ($activityType) {
-        $viewOnlyTypes = \CRM_Activity_BAO_Activity::getViewOnlyActivityTypeIDs($request->getCheckPermissions());
-        // Remove edit & delete links for "view only" types
-        if (isset($viewOnlyTypes[$activityType])) {
-          unset($links[$editLinkIndex], $links[$deleteLinkIndex]);
+      // Alter edit & delete links based on activity type
+      // NOTE: CiviCase also alters links, @see CaseLinksProvider
+      if (isset($editLinkIndex) || isset($deleteLinkIndex)) {
+        $activityType = $request->getValue('activity_type_id:name');
+        $activityId = $request->getValue('id');
+        // Lookup activity type from id
+        if (!$activityType && $activityId) {
+          $activityTypeId = \CRM_Core_DAO::getFieldValue('CRM_Activity_DAO_Activity', $activityId, 'activity_type_id');
+          $activityType = \CRM_Core_PseudoConstant::getName('CRM_Activity_DAO_Activity', 'activity_type_id', $activityTypeId);
+        }
+        if ($activityType) {
+          $viewOnlyTypes = \CRM_Activity_BAO_Activity::getViewOnlyActivityTypeIDs();
+          // Remove edit & delete links for "view only" types
+          if (isset($viewOnlyTypes[$activityType], $editLinkIndex)) {
+            unset($links[$editLinkIndex]);
+          }
+          if (isset($viewOnlyTypes[$activityType], $deleteLinkIndex)) {
+            unset($links[$deleteLinkIndex]);
+          }
         }
       }
       $e->getResponse()->exchangeArray(array_values($links));
@@ -79,11 +85,9 @@ class ActivityLinksProvider extends \Civi\Core\Service\AutoSubscriber {
   private static function getActivityTypeAddLinks($contactId, $checkPermissions): array {
     $addLinks = [];
     $activityTypeQuery = OptionValue::get(FALSE)
-      ->addSelect('name', 'label', 'icon', 'value')
+      ->addSelect('name', 'label', 'icon', 'value', 'filter', 'component_id')
       ->addWhere('option_group_id:name', '=', 'activity_type')
       ->addWhere('is_active', '=', TRUE)
-      ->addWhere('filter', 'IS EMPTY')
-      ->addWhere('component_id', 'IS NULL')
       ->addOrderBy('weight');
 
     // TODO: Code block was moved from CRM_Activity_Form_ActivityLinks and could use further cleanup
@@ -104,7 +108,7 @@ class ActivityLinksProvider extends \Civi\Core\Service\AutoSubscriber {
         }
       }
       elseif ($act['name'] === 'SMS') {
-        if (!\CRM_SMS_BAO_Provider::activeProviderCount() ||
+        if (!\CRM_SMS_BAO_SmsProvider::activeProviderCount() ||
           ($checkPermissions && !\CRM_Core_Permission::check('send SMS'))
         ) {
           continue;
@@ -134,6 +138,9 @@ class ActivityLinksProvider extends \Civi\Core\Service\AutoSubscriber {
       }
       elseif ($act['name'] == 'Print PDF Letter') {
         $url = 'civicrm/activity/pdf/add';
+      }
+      elseif (!empty($act['filter']) || (!empty($act['component_id']) && $act['component_id'] != '1')) {
+        continue;
       }
 
       $act['icon'] = $act['icon'] ?? 'fa-plus-square-o';

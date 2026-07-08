@@ -17,7 +17,7 @@ CRM_Core_Config::singleton();
 
 CRM_Utils_System::authenticateScript(TRUE);
 
-$job = CRM_Utils_Request::retrieve('job', 'String', CRM_Core_DAO::$_nullArray, FALSE, NULL, 'REQUEST');
+$job = CRM_Utils_Request::retrieve('job', 'String', NULL, FALSE, NULL, 'REQUEST');
 
 require_once 'CRM/Core/JobManager.php';
 $facility = new CRM_Core_JobManager();
@@ -26,11 +26,11 @@ if ($job === NULL) {
   $facility->execute();
 }
 else {
-  $ignored = array("name", "pass", "key", "job");
-  $params = array();
+  $ignored = ["name", "pass", "key", "job"];
+  $params = [];
   foreach ($_REQUEST as $name => $value) {
     if (!in_array($name, $ignored)) {
-      $params[$name] = CRM_Utils_Request::retrieve($name, 'String', CRM_Core_DAO::$_nullArray, FALSE, NULL, 'REQUEST');
+      $params[$name] = CRM_Utils_Request::retrieve($name, 'String', NULL, FALSE, NULL, 'REQUEST');
     }
   }
   $facility->setSingleRunParams('job', $job, $params, 'From cron.php');

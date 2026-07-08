@@ -25,11 +25,21 @@ class api_v3_ExtensionTest extends CiviUnitTestCase {
   use \Civi\Test\GuzzleTestTrait;
 
   public function setUp(): void {
+    parent::setUp();
     Civi::settings()->set('ext_repo_url', 'http://localhost:9999/fake-repo');
+    if (!defined('CIVICRM_EXTENSION_DOWNLOAD_TRUSTED_HOSTS')) {
+      define('CIVICRM_EXTENSION_DOWNLOAD_TRUSTED_HOSTS', ['localhost']);
+    }
+    else {
+      if (!in_array('localhost', CIVICRM_EXTENSION_DOWNLOAD_TRUSTED_HOSTS)) {
+        throw new \CRM_Core_Exception('api_v3_ExtensionTest requires localhost in the trusted hosts list, but this could not be set');
+      }
+    }
   }
 
   public function tearDown(): void {
     Civi::settings()->revert('ext_repo_url');
+    parent::tearDown();
   }
 
   /**
@@ -83,7 +93,7 @@ class api_v3_ExtensionTest extends CiviUnitTestCase {
     $testExtensionResult = $this->callAPISuccess('extension', 'get', ['key' => 'test.extension.manager.paymenttest']);
     $ext = $result['values'][$testExtensionResult['id']];
     $this->assertNotNull($ext['typeInfo']);
-    $this->assertEquals(['mock'], $ext['tags']);
+    $this->assertEquals(['mgmt:hidden', 'mock'], $ext['tags']);
     $this->assertTrue($result['count'] >= 6);
   }
 

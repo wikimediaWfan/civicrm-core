@@ -30,6 +30,7 @@
  */
 
 use Civi\Api4\Contact;
+use Civi\Api4\File;
 
 /**
  *  Test APIv3 civicrm_contact* functions
@@ -55,7 +56,7 @@ class api_v3_ContactTest extends CiviUnitTestCase {
    *
    * @var string
    */
-  protected $entity = 'Contact';
+  protected string $entity = 'Contact';
 
   /**
    * Test setup for every test.
@@ -199,7 +200,7 @@ class api_v3_ContactTest extends CiviUnitTestCase {
   /**
    * Get international string data for testing against api calls.
    */
-  public function getInternationalStrings(): array {
+  public static function getInternationalStrings(): array {
     $invocations = [];
     $invocations[] = ['Scarabée'];
     $invocations[] = ['Iñtërnâtiônàlizætiøn'];
@@ -613,13 +614,23 @@ class api_v3_ContactTest extends CiviUnitTestCase {
 
     // Disallow edit -- because we don't have permission
     $config->userPermissionClass->permissions = ['access CiviCRM', 'edit all contacts'];
-    $result = $this->callAPIFailure('Contact', 'create', [
-      'check_permissions' => 1,
-      'id' => $contactId,
-      'api_key' => 'defg4321',
-    ]);
-    $this->assertMatchesRegularExpression(';Permission denied to modify api key;', $result['error_message']);
-
+    if ($version === 3) {
+      $result = $this->callAPIFailure('Contact', 'create', [
+        'check_permissions' => 1,
+        'id' => $contactId,
+        'api_key' => 'defg4321',
+      ]);
+      $this->assertMatchesRegularExpression(';Permission denied to modify api key;', $result['error_message']);
+    }
+    else {
+      $this->callAPISuccess('Contact', 'create', [
+        'check_permissions' => 1,
+        'id' => $contactId,
+        'api_key' => 'defg4321',
+      ]);
+      $this->callAPISuccess('Contact', 'get', ['id' => $contactId]);
+      $this->assertEquals('abcd1234', CRM_Core_DAO::singleValueQuery(' SELECT api_key FROM civicrm_contact WHERE id = ' . $contactId));
+    }
     // Return everything -- because permissions are not being checked
     $config->userPermissionClass->permissions = [];
     $result = $this->callAPISuccess('Contact', 'create', [
@@ -810,7 +821,7 @@ class api_v3_ContactTest extends CiviUnitTestCase {
       'contact_type' => 'Individual',
     ]);
     $result = $this->callAPISuccessGetSingle('Contact', ['last_name' => 'Dog']);
-    $this->assertEquals(NULL, $result['preferred_language']);
+    $this->assertSame('en_US', $result['preferred_language']);
   }
 
   /**
@@ -908,8 +919,6 @@ class api_v3_ContactTest extends CiviUnitTestCase {
 
   /**
    * Test creating a current employer through API.
-   *
-   * @throws \CRM_Core_Exception
    */
   public function testContactCreateCurrentEmployer(): void {
     // Here we will just do the get for set-up purposes.
@@ -1317,6 +1326,26 @@ class api_v3_ContactTest extends CiviUnitTestCase {
     $this->customGroupDelete($ids['custom_group_id']);
   }
 
+  public function testGetOptions(): void {
+    $options = $this->callAPISuccess($this->_entity, 'getoptions', ['field' => 'worldregion_id']);
+    $this->assertContains('Europe and Central Asia', $options['values']);
+
+    $options = $this->callAPISuccess($this->_entity, 'getoptions', ['field' => 'country']);
+    $this->assertContains('France', $options['values']);
+
+    $options = $this->callAPISuccess($this->_entity, 'getoptions', ['field' => 'state_province']);
+    $this->assertContains('Alaska', $options['values']);
+  }
+
+  public function testGetOptionsWithCustom(): void {
+    $this->createCustomGroupWithFieldOfType(['extends' => $this->entity], 'select', 'foo');
+    $this->callAPISuccess('CustomField', 'create', ['id' => $this->ids['CustomField']['fooselect'], 'is_active' => 0]);
+    $options = $this->callAPISuccess($this->entity, 'getoptions', ['field' => 'custom_' . $this->ids['CustomField']['fooselect']]);
+    $this->callAPISuccess('CustomField', 'create', ['id' => $this->ids['CustomField']['fooselect'], 'is_active' => 1]);
+    $options = $this->callAPISuccess($this->entity, 'getoptions', ['field' => 'custom_' . $this->ids['CustomField']['fooselect']]);
+    $this->assertEquals(['R' => 'Red', 'Y' => 'Yellow', 'G' => 'Green'], $options['values']);
+  }
+
   /**
    * Tests that using 'return' with a custom field not of type contact does not inappropriately filter.
    *
@@ -1537,7 +1566,6 @@ class api_v3_ContactTest extends CiviUnitTestCase {
    * https://issues.civicrm.org/jira/browse/CRM-16084
    * @param int $version
    *
-   * @throws \CRM_Core_Exception
    * @dataProvider versionThreeAndFour
    */
   public function testDirectionChainingRelationshipsCRM16084(int $version): void {
@@ -3386,6 +3414,13 @@ class api_v3_ContactTest extends CiviUnitTestCase {
         ],
       ],
     ]);
+    foreach ([1, 2, 3] as $num) {
+      $this->callAPISuccess('EntityTag', 'create', [
+        'entity_table' => 'civicrm_contact',
+        'entity_id' => $result['id'],
+        'tag_id' => $this->tagCreate(['name' => "taggy $num"])['id'],
+      ]);
+    }
 
     //$dao = new CRM_Contact_BAO_Contact();
     //$dao->id = $result['id'];
@@ -3404,6 +3439,8 @@ class api_v3_ContactTest extends CiviUnitTestCase {
     $this->assertEquals('civicrm_email', $refCountsIdx['sql:civicrm_email:contact_id']['table']);
     $this->assertEquals(2, $refCountsIdx['sql:civicrm_phone:contact_id']['count']);
     $this->assertEquals('civicrm_phone', $refCountsIdx['sql:civicrm_phone:contact_id']['table']);
+    $this->assertEquals(3, $refCountsIdx['sql:civicrm_entity_tag:entity_id']['count']);
+    $this->assertEquals('civicrm_entity_tag', $refCountsIdx['sql:civicrm_entity_tag:entity_id']['table']);
     $this->assertNotTrue(isset($refCountsIdx['sql:civicrm_address:contact_id']));
   }
 
@@ -3630,7 +3667,7 @@ class api_v3_ContactTest extends CiviUnitTestCase {
   /**
    * @return array
    */
-  public function getPhoneStrings(): array {
+  public static function getPhoneStrings(): array {
     return [
       ['phone-Primary-1'],
       ['phone-Primary'],
@@ -3809,15 +3846,14 @@ class api_v3_ContactTest extends CiviUnitTestCase {
    */
   public function testMergeCustomFields(): void {
     $contact1 = $this->individualCreate();
-    // Not sure this is quite right but it does get it into the file table
-    $file = $this->callAPISuccess('Attachment', 'create', [
-      'name' => 'header.txt',
-      'mime_type' => 'text/plain',
-      'description' => 'My test description',
-      'content' => 'My test content',
-      'entity_table' => 'civicrm_contact',
-      'entity_id' => $contact1,
-    ]);
+    $file = File::create(FALSE)
+      ->setValues([
+        'mime_type' => 'text/plain',
+        'file_name' => 'header.txt',
+        'content' => 'My test content',
+      ])
+      ->execute()
+      ->single();
 
     $this->createCustomGroupWithFieldsOfAllTypes();
     $fileField = $this->getCustomFieldName('file');
@@ -3833,7 +3869,7 @@ class api_v3_ContactTest extends CiviUnitTestCase {
 
     $countriesByName = array_flip(CRM_Core_PseudoConstant::country(FALSE, FALSE));
     $statesByName = array_flip(CRM_Core_PseudoConstant::stateProvince(FALSE, FALSE));
-    $customFieldValues = [
+    $contact1CustomFieldValues = [
       $fileField => $file['id'],
       $linkField => 'https://example.org',
       $dateField => '2018-01-01 17:10:56',
@@ -3845,20 +3881,36 @@ class api_v3_ContactTest extends CiviUnitTestCase {
       $multiStateField => [$statesByName['Victoria'], $statesByName['Tasmania']],
       $booleanStateField => 1,
     ];
+    $customFieldKeys = array_keys($contact1CustomFieldValues);
     $this->callAPISuccess('Contact', 'create', array_merge([
       'id' => $contact1,
-    ], $customFieldValues));
+    ], $contact1CustomFieldValues));
 
     $contact2 = $this->individualCreate();
+    // Merge will run in 'safe' mode by default. We set up the two contacts to
+    // have no 'conflicts' -- for each field, the value is either NULL on
+    // contact 2, or the same as the value on contact 1.
+    $contact2CustomFieldValues = array_fill_keys($customFieldKeys, NULL);
+    $contact2CustomFieldValues[$linkField] = $contact1CustomFieldValues[$linkField];
+    $contact2CustomFieldValues[$dateField] = $contact1CustomFieldValues[$dateField];
+    $this->callAPISuccess('Contact', 'create', array_merge([
+      'id' => $contact2,
+    ], $contact2CustomFieldValues));
+
     $this->callAPISuccess('contact', 'merge', [
       'to_keep_id' => $contact2,
       'to_remove_id' => $contact1,
       'auto_flip' => FALSE,
     ]);
-    $contact = $this->callAPISuccessGetSingle('Contact', ['id' => $contact2, 'return' => array_keys($customFieldValues)]);
-    $this->assertEquals($contact2, CRM_Core_DAO::singleValueQuery('SELECT entity_id FROM civicrm_entity_file WHERE file_id = ' . $file['id']));
-    foreach ($customFieldValues as $key => $value) {
-      $this->assertEquals($value, $contact[$key]);
+
+    $contact1IsDeletedAfterMerge = $this->callAPISuccessGetValue('Contact', [
+      'return' => "contact_is_deleted",
+      'id' => $contact1,
+    ]);
+    $this->assertEquals(TRUE, $contact1IsDeletedAfterMerge);
+    $mergedContact = $this->callAPISuccessGetSingle('Contact', ['id' => $contact2, 'return' => $customFieldKeys]);
+    foreach ($customFieldKeys as $key) {
+      $this->assertEquals($contact1CustomFieldValues[$key], $mergedContact[$key]);
     }
   }
 
@@ -4666,7 +4718,7 @@ class api_v3_ContactTest extends CiviUnitTestCase {
    *
    * @return array
    */
-  public function versionAndPrivacyOption(): array {
+  public static function versionAndPrivacyOption(): array {
     $version = [3, 4];
     $fields = ['do_not_mail', 'do_not_email', 'do_not_sms', 'is_opt_out', 'do_not_trade'];
     $tests = [];
@@ -4759,7 +4811,7 @@ class api_v3_ContactTest extends CiviUnitTestCase {
    * @throws \CRM_Core_Exception
    * @throws \Civi\API\Exception\UnauthorizedException
    */
-  protected function validateContactField(string $fieldName, $expected, ?int $contactID, array $criteria = NULL): void {
+  protected function validateContactField(string $fieldName, $expected, ?int $contactID, ?array $criteria = NULL): void {
     $api = Contact::get()->addSelect($fieldName);
     if ($criteria) {
       $api->setWhere([$criteria]);

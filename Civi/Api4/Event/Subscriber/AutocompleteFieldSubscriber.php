@@ -26,14 +26,14 @@ class AutocompleteFieldSubscriber extends AutoService implements EventSubscriber
   /**
    * @return array
    */
-  public static function getSubscribedEvents() {
+  public static function getSubscribedEvents(): array {
     return [
       'civi.api.prepare' => ['onApiPrepare', 150],
     ];
   }
 
   /**
-   * Apply any filters set in the schema for autocomplete fields
+   * Apply any filters set in the QuickForm or field schema for autocomplete fields
    *
    * In order for this to work, the `$fieldName` param needs to be in
    * the format `EntityName.field_name`. Anything not in that format
@@ -50,12 +50,21 @@ class AutocompleteFieldSubscriber extends AutoService implements EventSubscriber
   public function onApiPrepare(\Civi\API\Event\PrepareEvent $event): void {
     $apiRequest = $event->getApiRequest();
     if (is_object($apiRequest) && is_a($apiRequest, 'Civi\Api4\Generic\AutocompleteAction')) {
-      [$formType, $formName] = array_pad(explode(':', (string) $apiRequest->getFormName()), 2, '');
+      [$formType, $formName, $mainEntityId] = array_pad(explode(':', (string) $apiRequest->getFormName()), 3, '');
       [$entityName, $fieldName] = array_pad(explode('.', (string) $apiRequest->getFieldName(), 2), 2, '');
 
       if (!$fieldName) {
         return;
       }
+
+      // Apply any filters defined in the QuickForm
+      if ($formType === 'qf' && is_a($formName, 'CRM_Core_Form', TRUE)) {
+        $formFilters = $formName::autocompleteFilters($mainEntityId);
+        foreach ($formFilters[$fieldName] ?? [] as $key => $value) {
+          $apiRequest->addFilter($key, $value);
+        }
+      }
+
       try {
         $fieldSpec = civicrm_api4($entityName, 'getFields', [
           'checkPermissions' => FALSE,
@@ -67,9 +76,9 @@ class AutocompleteFieldSubscriber extends AutoService implements EventSubscriber
           $apiRequest->addFilter($key, $value);
         }
 
-        // Autocomplete for field with option values
-        if ($apiRequest->getEntityName() === 'OptionValue' && !empty($fieldSpec['custom_field_id'])) {
-          $apiRequest->setKey('value');
+        // Use FK key from fieldSpec, e.g. custom Autocomplete field keys by 'value' not 'id'
+        if (!$apiRequest->getKey() && !empty($fieldSpec['fk_column'])) {
+          $apiRequest->setKey($fieldSpec['fk_column']);
         }
 
         if ($formType === 'qf') {

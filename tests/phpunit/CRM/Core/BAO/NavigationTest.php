@@ -29,7 +29,6 @@ class CRM_Core_BAO_NavigationTest extends CiviUnitTestCase {
     $url = 'civicrm/report/instance/1';
     $url_params = 'reset=1';
     $new_nav = CRM_Core_BAO_Navigation::getNavItemByUrl($url, $url_params);
-    $this->assertObjectHasAttribute('id', $new_nav);
     $this->assertNotNull($new_nav->id);
   }
 
@@ -94,13 +93,13 @@ class CRM_Core_BAO_NavigationTest extends CiviUnitTestCase {
    * Test that a navigation item can be retrieved by it's url.
    */
   public function testGetNavItemByUrl(): void {
-    $random_string = substr(sha1(rand()), 0, 7);
+    $random_string = bin2hex(random_bytes(4));
     $name = "Test Menu Link {$random_string}";
     $url = "civicrm/test/{$random_string}";
     $url_params = "reset=1";
     $params = [
       'name' => $name,
-      'label' => ts($name),
+      'label' => $name,
       'url' => "{$url}?{$url_params}",
       'parent_id' => NULL,
       'is_active' => TRUE,
@@ -110,7 +109,6 @@ class CRM_Core_BAO_NavigationTest extends CiviUnitTestCase {
     ];
     CRM_Core_BAO_Navigation::add($params);
     $new_nav = CRM_Core_BAO_Navigation::getNavItemByUrl($url, $url_params);
-    $this->assertObjectHasAttribute('id', $new_nav);
     $this->assertNotNull($new_nav->id);
     $new_nav->delete();
   }
@@ -122,13 +120,13 @@ class CRM_Core_BAO_NavigationTest extends CiviUnitTestCase {
    * that is part of the navigation but not the instance.
    */
   public function testGetNavItemByUrlWildcard(): void {
-    $random_string = substr(sha1(rand()), 0, 7);
+    $random_string = bin2hex(random_bytes(4));
     $name = "Test Menu Link {$random_string}";
     $url = "civicrm/test/{$random_string}";
     $url_params = "reset=1&output=criteria";
     $params = [
       'name' => $name,
-      'label' => ts($name),
+      'label' => $name,
       'url' => "{$url}?{$url_params}",
       'parent_id' => NULL,
       'is_active' => TRUE,
@@ -138,7 +136,6 @@ class CRM_Core_BAO_NavigationTest extends CiviUnitTestCase {
     ];
     CRM_Core_BAO_Navigation::add($params);
     $new_nav = CRM_Core_BAO_Navigation::getNavItemByUrl($url, 'reset=1%');
-    $this->assertObjectHasAttribute('id', $new_nav);
     $this->assertNotNull($new_nav->id);
     $new_nav->delete();
   }

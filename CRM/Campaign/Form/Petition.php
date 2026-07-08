@@ -19,12 +19,18 @@
  * This class generates form components for adding a petition.
  */
 class CRM_Campaign_Form_Petition extends CRM_Core_Form {
+  use CRM_Custom_Form_CustomDataTrait;
 
   /**
    * Making this public so we can reference it in the formRule
    * @var int
    */
   public $_surveyId;
+
+  /**
+   * @var array
+   */
+  protected $_values;
 
   /**
    * Explicitly declare the entity api name.
@@ -42,14 +48,32 @@ class CRM_Campaign_Form_Petition extends CRM_Core_Form {
     return $this->_surveyId;
   }
 
+  /**
+   * Get the survey ID.
+   *
+   * @api supported for external use.
+   *
+   * @return int|null
+   * @throws \CRM_Core_Exception
+   */
+  public function getSurveyID(): ?int {
+    if (!isset($this->_surveyId)) {
+      $this->_surveyId = CRM_Utils_Request::retrieve('id', 'Positive', $this);
+    }
+    return $this->_surveyId;
+  }
+
+  /**
+   * @throws \CRM_Core_Exception
+   */
   public function preProcess() {
     if (!CRM_Campaign_BAO_Campaign::accessCampaign()) {
       CRM_Utils_System::permissionDenied();
     }
 
-    $this->_context = CRM_Utils_Request::retrieve('context', 'Alphanumeric', $this);
+    $context = CRM_Utils_Request::retrieve('context', 'Alphanumeric', $this);
 
-    $this->assign('context', $this->_context);
+    $this->assign('context', $context);
 
     $this->_action = CRM_Utils_Request::retrieve('action', 'String', $this);
 
@@ -64,8 +88,15 @@ class CRM_Campaign_Form_Petition extends CRM_Core_Form {
       }
     }
 
-    // Add custom data to form
-    CRM_Custom_Form_CustomData::addToForm($this);
+    if ($this->isSubmitted()) {
+      // The custom data fields are added to the form by an ajax form.
+      // However, if they are not present in the element index they will
+      // not be available from `$this->getSubmittedValue()` in post process.
+      // We do not have to set defaults or otherwise render - just add to the element index.
+      $this->addCustomDataFieldsToForm('Survey', array_filter([
+        'id' => $this->getSurveyID(),
+      ]));
+    }
 
     $session = CRM_Core_Session::singleton();
     $url = CRM_Utils_System::url('civicrm/campaign', 'reset=1&subPage=survey');
@@ -289,15 +320,13 @@ WHERE  $whereClause
 
     $session = CRM_Core_Session::singleton();
 
-    $params['last_modified_id'] = $session->get('userID');
-    $params['last_modified_date'] = date('YmdHis');
     $params['is_share'] ??= FALSE;
 
     if ($this->_surveyId) {
 
       if ($this->_action & CRM_Core_Action::DELETE) {
         CRM_Campaign_BAO_Survey::deleteRecord(['id' => $this->_surveyId]);
-        CRM_Core_Session::setStatus(ts(' Petition has been deleted.'), ts('Record Deleted'), 'success');
+        CRM_Core_Session::setStatus(ts('Petition has been deleted.'), ts('Record Deleted'), 'success');
         $session->replaceUserContext(CRM_Utils_System::url('civicrm/campaign', 'reset=1&subPage=petition'));
         return;
       }
@@ -315,7 +344,7 @@ WHERE  $whereClause
 
     $params['custom'] = CRM_Core_BAO_CustomField::postProcess($params, $this->getEntityId(), $this->getDefaultEntity());
 
-    $surveyId = CRM_Campaign_BAO_Survey::create($params);
+    $surveyId = CRM_Campaign_BAO_Survey::writeRecord($params);
 
     // also update the ProfileModule tables
     $ufJoinParams = [
@@ -341,13 +370,11 @@ WHERE  $whereClause
       CRM_Core_BAO_UFJoin::create($ufJoinParams);
     }
 
-    if (!is_a($surveyId, 'CRM_Core_Error')) {
-      CRM_Core_Session::setStatus(ts('Petition has been saved.'), ts('Saved'), 'success');
-    }
+    CRM_Core_Session::setStatus(ts('Petition has been saved.'), ts('Saved'), 'success');
 
     $buttonName = $this->controller->getButtonName();
     if ($buttonName == $this->getButtonName('next', 'new')) {
-      CRM_Core_Session::setStatus(ts(' You can add another Petition.'), '', 'info');
+      CRM_Core_Session::setStatus(ts('You can add another Petition.'), '', 'info');
       $session->replaceUserContext(CRM_Utils_System::url('civicrm/petition/add', 'reset=1&action=add'));
     }
     else {

@@ -17,9 +17,6 @@ use Civi\Token\TokenProcessor;
  * @copyright CiviCRM LLC https://civicrm.org/licensing
  */
 
-
-require_once 'Mail/mime.php';
-
 /**
  * Class CRM_Mailing_Event_BAO_Subscribe
  */
@@ -117,7 +114,6 @@ SELECT     civicrm_email.id as email_id
 
     if (!$dao->fetch()) {
       throw new CRM_Core_Exception('Please file an issue with the backtrace');
-      return $success;
     }
 
     $se = new CRM_Mailing_Event_BAO_MailingEventSubscribe();
@@ -168,11 +164,11 @@ SELECT     civicrm_email.id as email_id
    *
    * @param string $email
    *   The email address.
+   *
+   * @throws \CRM_Core_Exception
    */
   public function send_confirm_request($email) {
     $config = CRM_Core_Config::singleton();
-
-    $domain = CRM_Core_BAO_Domain::getDomain();
 
     //get the default domain email address.
     [$domainEmailName, $domainEmailAddress] = CRM_Core_BAO_Domain::getNameAndEmail();
@@ -201,6 +197,7 @@ SELECT     civicrm_email.id as email_id
       'toEmail' => $email,
       'replyTo' => $confirm,
       'returnPath' => CRM_Core_BAO_Domain::getNoReplyEmailAddress(),
+      'contactId' => $this->contact_id,
     ];
 
     $url = CRM_Utils_System::url('civicrm/mailing/confirm',
@@ -244,7 +241,7 @@ SELECT     civicrm_email.id as email_id
     $params['subject'] = $tokenProcessor->getRow(0)->render('subject');
 
     CRM_Mailing_BAO_Mailing::addMessageIdHeader($params, 's',
-      $this->contact_id,
+      NULL,
       $this->id,
       $this->hash
     );

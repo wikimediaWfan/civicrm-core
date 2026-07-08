@@ -1,6 +1,11 @@
 <?php
 use CRM_CivicrmAdminUi_ExtensionUtil as E;
 
+// Temporary check can be removed when moving this file to the civi_contribute extension.
+if (!CRM_Core_Component::isEnabled('CiviContribute')) {
+  return [];
+}
+
 return [
   [
     'name' => 'SavedSearch_Administer_Assigned_Financial_Accounts',
@@ -69,6 +74,7 @@ return [
           'classes' => [
             'table',
             'table-striped',
+            'crm-sticky-header',
           ],
           'pager' => [
             'show_count' => TRUE,
@@ -81,44 +87,38 @@ return [
             [
               'type' => 'field',
               'key' => 'account_relationship:label',
-              'dataType' => 'Integer',
-              'label' => E::ts('Relationship'),
+              'label' => 'Relationship',
               'sortable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'financial_account_id:label',
-              'dataType' => 'Integer',
-              'label' => E::ts('Financial Account'),
+              'label' => 'Financial Account',
               'sortable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'EntityFinancialAccount_FinancialAccount_financial_account_id_01.accounting_code',
-              'dataType' => 'String',
-              'label' => E::ts('Accounting Code'),
+              'label' => 'Accounting Code',
               'sortable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'EntityFinancialAccount_FinancialAccount_financial_account_id_01.financial_account_type_id:label',
-              'dataType' => 'Integer',
-              'label' => E::ts('Account Type (Code)'),
+              'label' => 'Account Type (Code)',
               'sortable' => TRUE,
               'rewrite' => '[EntityFinancialAccount_FinancialAccount_financial_account_id_01.financial_account_type_id:label] ([EntityFinancialAccount_FinancialAccount_financial_account_id_01.account_type_code])',
             ],
             [
               'type' => 'field',
               'key' => 'EntityFinancialAccount_FinancialAccount_financial_account_id_01.contact_id.display_name',
-              'dataType' => 'String',
-              'label' => E::ts('Owner'),
+              'label' => 'Owner',
               'sortable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'EntityFinancialAccount_FinancialAccount_financial_account_id_01.is_active',
-              'dataType' => 'Boolean',
-              'label' => E::ts('Enabled'),
+              'label' => 'Enabled',
               'sortable' => TRUE,
               'editable' => TRUE,
             ],
@@ -128,7 +128,7 @@ return [
                 [
                   'path' => 'civicrm/admin/financial/financialType/accounts?action=update&id=[id]&aid=[entity_id]&reset=1',
                   'icon' => 'fa-pencil',
-                  'text' => E::ts('Edit'),
+                  'text' => 'Edit',
                   'style' => 'default',
                   'condition' => [],
                   'entity' => '',
@@ -139,10 +139,10 @@ return [
                 [
                   'path' => 'civicrm/admin/financial/financialType/accounts?action=delete&id=[id]&aid=[entity_id]&reset=1',
                   'icon' => 'fa-trash',
-                  'text' => E::ts('Delete'),
+                  'text' => 'Delete',
                   'style' => 'danger',
                   'condition' => [
-                    'account_relationship:label',
+                    'account_relationship:name',
                     '!=',
                     'Accounts Receivable Account is',
                   ],
@@ -171,7 +171,7 @@ return [
               'action' => 'add',
               'target' => 'crm-popup',
               'style' => 'primary',
-              'text' => E::ts('Add Assigned Account'),
+              'text' => 'Add Assigned Account',
               'icon' => 'fa-plus',
             ],
           ],

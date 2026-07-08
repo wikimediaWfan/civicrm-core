@@ -9,11 +9,15 @@
  +--------------------------------------------------------------------+
  */
 
+use Civi\Test\FormTrait;
+use Civi\Test\FormWrapper;
+
 /**
  * Class CRM_Event_Form_Registration_RegisterTest
  * @group headless
  */
 class CRM_Event_Form_Registration_RegisterTest extends CiviUnitTestCase {
+  use FormTrait;
 
   /**
    * CRM-19626 - Test minimum value configured for price set.
@@ -21,36 +25,34 @@ class CRM_Event_Form_Registration_RegisterTest extends CiviUnitTestCase {
    * @throws \CRM_Core_Exception
    */
   public function testMinValueForPriceSet(): void {
-    $minAmt = 100;
-    $priceSetID = $this->eventPriceSetCreate(1000, 100);
-    $event = $this->eventCreatePaid([], ['id' => $priceSetID, 'min_amount' => 100]);
-    $form = $this->getEventForm($this->getEventID());
-
-    $priceSet = current(CRM_Price_BAO_PriceSet::getSetDetail($priceSetID));
-    $form->_values['fee'] = $form->_feeBlock = $priceSet['fields'];
-    $form->_values['event'] = $event;
-    $form->_skipDupeRegistrationCheck = 1;
-
-    $priceField = $this->callAPISuccess('PriceField', 'get', ['price_set_id' => $priceSetID]);
-    $params = [
+    $this->eventCreatePaid([], ['min_amount' => 100]);
+    $submittedValues = [
       'email-Primary' => 'someone@example.com',
-      'priceSetId' => $priceSetID,
+      'priceSetId' => $this->ids['PriceSet']['PaidEvent'],
+      'price_' . $this->ids['PriceField']['PaidEvent'] => $this->ids['PriceFieldValue']['PaidEvent_student_early'],
+      'payment_processor_id' => 0,
     ];
-    // Check empty values for price fields.
-    foreach (array_keys($priceField['values']) as $fieldId) {
-      $params['price_' . $fieldId] = 0;
-    }
-    $form->set('priceSetId', $priceSetID);
-    $form->set('priceSet', $priceSet);
-    $form->set('name', 'CRM_Event_Form_Registration_Register');
-    $files = [];
-    $errors = CRM_Event_Form_Registration_Register::formRule($params, $files, $form);
+    $form = $this->getTestForm('CRM_Event_Form_Registration_Register', $submittedValues, ['id' => $this->getEventID()]);
+    $form->processForm(FormWrapper::VALIDATED);
 
     //Assert the validation Error.
     $expectedResult = [
-      '_qf_default' => ts('A minimum amount of %1 should be selected from Event Fee(s).', [1 => CRM_Utils_Money::format($minAmt)]),
+      '_qf_default' => ts('A minimum amount of %1 should be selected from Event Fee(s).', [1 => CRM_Utils_Money::format(100)]),
     ];
-    $this->checkArrayEquals($expectedResult, $errors);
+    $this->assertValidationError($expectedResult);
+  }
+
+  public function testValidateEventWithAvailableSpace(): void {
+    $event = $this->eventCreateUnpaid(['max_participants' => 2]);
+    $form = $this->getTestForm('CRM_Event_Form_Registration_Register', [
+      'additional_participants' => 2,
+      'email-Primary' => 'someone@example.com',
+    ], ['id' => $this->getEventID()]);
+    $form->processForm(FormWrapper::VALIDATED);
+    $expectedResult = [
+      'additional_participants' => 'There is only enough space left on this event for 2 participant(s).',
+    ];
+    $this->assertValidationError($expectedResult);
   }
 
   /**
@@ -76,16 +78,18 @@ class CRM_Event_Form_Registration_RegisterTest extends CiviUnitTestCase {
     // Add someone to the waitlist.
     $waitlistContact = $this->individualCreate();
 
-    $this->participantCreate(['event_id' => $event['id'], 'contact_id' => $waitlistContact, 'status_id' => 'On waitlist']);
+    $this->participantCreate(['event_id' => $event['id'], 'contact_id' => $waitlistContact, 'status_id.name' => 'On waitlist']);
 
     // We should now have two participants.
     $this->callAPISuccessGetCount('Participant', ['event_id' => $event['id']], 2);
 
-    $form = $this->getEventForm($event['id']);
-    $form->set('cid', $waitlistContact);
+    $form = $this->getTestForm('CRM_Event_Form_Registration_Register', [], [
+      'id' => $this->getEventID(),
+      'cid' => $waitlistContact,
+    ]);
     // We SHOULD get an error when double registering a waitlisted user.
     try {
-      $form->preProcess();
+      $form->processForm(FormWrapper::PREPROCESSED);
     }
     catch (CRM_Core_Exception_PrematureExitException $e) {
       return;
@@ -94,14 +98,89 @@ class CRM_Event_Form_Registration_RegisterTest extends CiviUnitTestCase {
   }
 
   /**
-   * @param int $eventID
+   * Test that current event is valid or not.
    *
-   * @return CRM_Event_Form_Registration_Register
+   * @dataProvider eventDataProvider
+   *
+   * @return void
    */
-  protected function getEventForm(int $eventID): CRM_Event_Form_Registration_Register {
-    /** @var \CRM_Event_Form_Registration_Register $form */
-    $_REQUEST['id'] = $eventID;
-    return $this->getFormObject('CRM_Event_Form_Registration_Register');
+  public function testValidEvent(string $fieldName, array $formValues, string $expectedMessage, string $dateFormat): void {
+    $event = $this->eventCreateUnpaid();
+
+    // calculate the datetime now since dataproviders run at the start of the
+    // test suite and so it might be off by the time we get here
+    $offset = NULL;
+    if ($dateFormat) {
+      // In this case we expect the value to be a relative date string.
+      // Keep offset for later.
+      $offset = $formValues[$fieldName];
+      $formValues[$fieldName] = date($dateFormat, strtotime($offset));
+    }
+
+    $this->updateEvent($formValues);
+    $form = $this->getTestForm('CRM_Event_Form_Registration_Register', [], [
+      'id' => $this->getEventID(),
+    ]);
+
+    try {
+      $form->processForm(FormWrapper::PREPROCESSED);
+      $this->fail('Should have thrown an exception');
+    }
+    catch (CRM_Core_Exception_PrematureExitException $e) {
+      $message = CRM_Core_Session::singleton()->getStatus();
+      if ($dateFormat) {
+        // replace placeholder with formatted expected offset
+        $expectedMessage = str_replace('%EXPECTED_DATE%', CRM_Utils_Date::customFormat(date($dateFormat, strtotime($offset))), $expectedMessage);
+      }
+      $this->assertEquals($expectedMessage, $message[0]['text']);
+    }
+  }
+
+  public static function eventDataProvider(): array {
+    return [
+      'inactive_event' => [
+        'field_name' => 'is_active',
+        'form_values' => ['is_active' => FALSE],
+        'expected_message' => 'The event you requested is currently unavailable (contact the site administrator for assistance).',
+        'message_date_format' => '',
+      ],
+      'online_registration_disabled' => [
+        'field_name' => 'is_online_registration',
+        'form_values' => ['is_online_registration' => FALSE],
+        'expected_message' => 'Online registration is not currently available for this event (contact the site administrator for assistance).',
+        'message_date_format' => '',
+      ],
+      'event_is_template' => [
+        'field_name' => 'is_template',
+        'form_values' => ['is_template' => TRUE],
+        'expected_message' => 'Event templates are not meant to be registered.',
+        'message_date_format' => '',
+      ],
+      'start_date_in_future' => [
+        'field_name' => 'registration_start_date',
+        'form_values' => ['registration_start_date' => '+ 1 day'],
+        'expected_message' => 'Registration for this event begins on %EXPECTED_DATE%',
+        'message_date_format' => 'YmdH0000',
+      ],
+      'registration_end_date_in_past' => [
+        'field_name' => 'registration_end_date',
+        'form_values' => ['registration_end_date' => '- 1 day'],
+        'expected_message' => 'Registration for this event ended on %EXPECTED_DATE%',
+        'message_date_format' => 'YmdH0000',
+      ],
+      'event_end_date_in_past' => [
+        'field_name' => 'end_date',
+        // the stock event always puts the registration end in the future, so
+        // we need to get rid of that to test this properly.
+        'form_values' => [
+          'end_date' => '- 1 day',
+          'registration_start_date' => NULL,
+          'registration_end_date' => NULL,
+        ],
+        'expected_message' => 'Registration for this event ended on %EXPECTED_DATE%',
+        'message_date_format' => 'YmdHi',
+      ],
+    ];
   }
 
 }

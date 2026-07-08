@@ -155,6 +155,10 @@ class CRM_Core_Block {
           'region' => $config->userSystem->getDefaultBlockLocation(),
         ],
       ];
+      // This block requires the legacycustomsearches extension
+      if (!self::checkExtensionEnabled('legacycustomsearches')) {
+        unset(self::$_properties[self::FULLTEXT_SEARCH]);
+      }
 
       ksort(self::$_properties);
     }
@@ -392,16 +396,6 @@ class CRM_Core_Block {
 
     $values = [];
 
-    // Deprecated hook with typo.  Please don't use this!
-    CRM_Utils_Hook::links('create.new.shorcuts',
-      NULL,
-      CRM_Core_DAO::$_nullObject,
-      $values
-    );
-    if ($values) {
-      CRM_Core_Error::deprecatedWarning('hook_civicrm_links "create.new.shorcuts" deprecated in favor of "create.new.shortcuts"');
-    }
-
     foreach ($shortCuts as $key => $short) {
       $values[$key] = self::setShortCutValues($short);
     }
@@ -409,7 +403,7 @@ class CRM_Core_Block {
     // Hook that enables extensions to add user-defined links
     CRM_Utils_Hook::links('create.new.shortcuts',
       NULL,
-      CRM_Core_DAO::$_nullObject,
+      NULL,
       $values
     );
 
@@ -474,37 +468,6 @@ class CRM_Core_Block {
       $values[] = $value;
     }
     self::setProperty(self::DASHBOARD, 'templateValues', ['dashboardLinks' => $values]);
-  }
-
-  /**
-   * Create the list of mail urls for the application and format is as a block.
-   */
-  private static function setTemplateMailValues() {
-    static $shortCuts = NULL;
-
-    if (!($shortCuts)) {
-      $shortCuts = [
-        [
-          'path' => 'civicrm/mailing/send',
-          'query' => 'reset=1',
-          'title' => ts('Send Mailing'),
-        ],
-        [
-          'path' => 'civicrm/mailing/browse',
-          'query' => 'reset=1',
-          'title' => ts('Browse Sent Mailings'),
-        ],
-      ];
-    }
-
-    $values = [];
-    foreach ($shortCuts as $short) {
-      $value = [];
-      $value['url'] = CRM_Utils_System::url($short['path'], $short['query']);
-      $value['title'] = $short['title'];
-      $values[] = $value;
-    }
-    self::setProperty(self::MAIL, 'templateValues', ['shortCuts' => $values]);
   }
 
   /**
@@ -578,6 +541,10 @@ class CRM_Core_Block {
         return NULL;
       }
     }
+    // This block requires the legacycustomsearches extension
+    if ($id == self::FULLTEXT_SEARCH && !self::checkExtensionEnabled('legacycustomsearches')) {
+      return NULL;
+    }
 
     self::setTemplateValues($id);
 
@@ -628,6 +595,15 @@ class CRM_Core_Block {
     }
 
     return $template->fetch('CRM/Block/' . $fileName);
+  }
+
+  private static function checkExtensionEnabled(string $key): bool {
+    $extension = \Civi\Api4\Extension::get(FALSE)
+      ->addWhere('key', '=', $key)
+      ->addWhere('status', '=', 'installed')
+      ->selectRowCount()
+      ->execute();
+    return (bool) $extension->count();
   }
 
 }

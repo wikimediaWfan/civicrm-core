@@ -8,11 +8,10 @@
  +--------------------------------------------------------------------+
 *}
 
-<div class="crm-accordion-wrapper crm-contactDetails-accordion
-   {if empty($contribution_recur_pane_open)} collapsed{/if}" id="contribution_recur">
-  <div class="crm-accordion-header">
+<details class="crm-accordion-bold crm-contactDetails-accordion" id="contribution_recur" {if empty($contribution_recur_pane_open)}{else}open{/if}>
+  <summary>
     {ts}Recurring Contributions{/ts}
-  </div>
+  </summary>
   <div class="crm-accordion-body">
     <table class="form-layout-compressed">
       <tr>
@@ -57,14 +56,14 @@
         </td>
       </tr>
       <tr>
-        <td>{ts}Processor ID{/ts} {help id="processor-id" file="CRM/Contact/Form/Search/Advanced"}</td>
+        <td>{ts}Processor ID{/ts} {help id="contribution_recur_processor_id" file="CRM/Contact/Form/Search/Advanced"}</td>
         <td></td>
         <td col='span2'>
           {$form.contribution_recur_processor_id.html}
         </td>
       </tr>
       <tr>
-        <td>{ts}Transaction ID{/ts} {help id="transaction-id" file="CRM/Contact/Form/Search/Advanced"}</td>
+        <td>{ts}Transaction ID{/ts} {help id="contribution_recur_trxn_id" file="CRM/Contact/Form/Search/Advanced"}</td>
         <td></td>
         <td col='span2'>
           {$form.contribution_recur_trxn_id.html}
@@ -79,7 +78,6 @@
       {/if}
     </table>
   </div>
-<!-- /.crm-accordion-body -->
-</div><!-- /.crm-accordion-wrapper -->
+</details>
 
 

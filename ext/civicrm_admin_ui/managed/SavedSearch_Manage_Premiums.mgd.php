@@ -1,6 +1,11 @@
 <?php
 use CRM_CivicrmAdminUi_ExtensionUtil as E;
 
+// Temporary check can be removed when moving this file to the civi_contribute extension.
+if (!CRM_Core_Component::isEnabled('CiviContribute')) {
+  return [];
+}
+
 return [
   [
     'name' => 'SavedSearch_Manage_Premiums',
@@ -67,56 +72,49 @@ return [
             [
               'type' => 'field',
               'key' => 'name',
-              'dataType' => 'String',
-              'label' => E::ts('Product Name'),
+              'label' => 'Product Name',
               'sortable' => TRUE,
               'editable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'sku',
-              'dataType' => 'String',
-              'label' => E::ts('SKU'),
+              'label' => 'SKU',
               'sortable' => TRUE,
               'editable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'price',
-              'dataType' => 'Money',
-              'label' => E::ts('Price'),
+              'label' => 'Price',
               'sortable' => TRUE,
               'editable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'min_contribution',
-              'dataType' => 'Money',
-              'label' => E::ts('Minimum Contribution'),
+              'label' => 'Minimum Contribution',
               'sortable' => TRUE,
               'editable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'cost',
-              'dataType' => 'Money',
-              'label' => E::ts('Cost'),
+              'label' => 'Cost',
               'sortable' => TRUE,
               'editable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'financial_type_id:label',
-              'dataType' => 'Integer',
-              'label' => E::ts('Financial Type'),
+              'label' => 'Financial Type',
               'sortable' => TRUE,
               'editable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'is_active',
-              'dataType' => 'Boolean',
-              'label' => E::ts('Enabled'),
+              'label' => 'Enabled',
               'sortable' => TRUE,
               'editable' => TRUE,
             ],
@@ -132,7 +130,7 @@ return [
                   'join' => '',
                   'target' => 'crm-popup',
                   'icon' => 'fa-eye',
-                  'text' => E::ts('Preview'),
+                  'text' => 'Preview',
                   'style' => 'default',
                   'path' => '',
                   'task' => '',
@@ -144,7 +142,7 @@ return [
                   'join' => '',
                   'target' => 'crm-popup',
                   'icon' => 'fa-pencil',
-                  'text' => E::ts('Edit'),
+                  'text' => 'Edit',
                   'style' => 'default',
                   'path' => '',
                   'task' => '',
@@ -156,15 +154,11 @@ return [
                   'join' => '',
                   'target' => 'crm-popup',
                   'icon' => 'fa-toggle-on',
-                  'text' => E::ts('Enable'),
+                  'text' => 'Enable',
                   'style' => 'default',
                   'path' => '',
                   'action' => '',
-                  'condition' => [
-                    'is_active',
-                    '=',
-                    FALSE,
-                  ],
+                  'condition' => [],
                 ],
                 [
                   'task' => 'disable',
@@ -172,15 +166,11 @@ return [
                   'join' => '',
                   'target' => 'crm-popup',
                   'icon' => 'fa-toggle-off',
-                  'text' => E::ts('Disable'),
+                  'text' => 'Disable',
                   'style' => 'default',
                   'path' => '',
                   'action' => '',
-                  'condition' => [
-                    'is_active',
-                    '=',
-                    TRUE,
-                  ],
+                  'condition' => [],
                 ],
                 [
                   'entity' => 'Product',
@@ -188,7 +178,7 @@ return [
                   'join' => '',
                   'target' => 'crm-popup',
                   'icon' => 'fa-trash',
-                  'text' => E::ts('Delete'),
+                  'text' => 'Delete',
                   'style' => 'danger',
                   'path' => '',
                   'task' => '',
@@ -203,6 +193,7 @@ return [
           'classes' => [
             'table',
             'table-striped',
+            'crm-sticky-header',
           ],
           'cssRules' => [
             [
@@ -216,7 +207,7 @@ return [
             [
               'path' => '',
               'icon' => 'fa-plus',
-              'text' => E::ts('Add Product'),
+              'text' => 'Add Product',
               'style' => 'primary',
               'condition' => [],
               'task' => '',

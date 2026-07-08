@@ -14,6 +14,8 @@
  * @package CRM
  * @copyright CiviCRM LLC https://civicrm.org/licensing
  */
+use Civi\Api4\Contact;
+use Civi\Api4\DedupeRuleGroup;
 
 /**
  * BAO object for civicrm_prevnext_cache table.
@@ -23,18 +25,26 @@ class CRM_Core_BAO_PrevNextCache extends CRM_Core_DAO_PrevNextCache {
   /**
    * Get the previous and next keys.
    *
+   * @internal as of Feb 2014 no universe usages other than defunct CiviHR
+   * code found.
+   *
    * @param string $cacheKey
    * @param int $id1
    * @param int $id2
-   * @param int $mergeId
-   * @param string $join
-   * @param string $where
+   * @param null $mergeId
+   * @param null $ignore
+   * @param null $ignore_more
    * @param bool $flip
    *
    * @return array
+   * @throws \CRM_Core_Exception
+   * @throws \Civi\Core\Exception\DBQueryException
    */
-  public static function getPositions($cacheKey, $id1, $id2, &$mergeId = NULL, $join = NULL, $where = NULL, $flip = FALSE) {
+  public static function getPositions($cacheKey, $id1, $id2, &$mergeId = NULL, $ignore = NULL, $ignore_more = NULL, $flip = FALSE) {
+    $join = CRM_Dedupe_Merger::getJoinOnDedupeTable();
+    $where = "de.id IS NULL";
     if ($flip) {
+      CRM_Core_Error::deprecatedFunctionWarning('handle this outside the function');
       [$id1, $id2] = [$id2, $id1];
     }
 
@@ -342,7 +352,7 @@ WHERE (pn.cachekey $op %1 OR pn.cachekey $op %2)
    *
    * @throws \CRM_Core_Exception
    */
-  public static function refillCache($rgid, $gid, $criteria, $checkPermissions, $searchLimit = 0) {
+  public static function refillCache($rgid, $gid, $criteria, bool $checkPermissions, $searchLimit = 0) {
     $cacheKeyString = CRM_Dedupe_Merger::getMergeCacheKeyString($rgid, $gid, $criteria, $checkPermissions, $searchLimit);
 
     // 1. Clear cache if any
@@ -359,21 +369,36 @@ WHERE (pn.cachekey $op %1 OR pn.cachekey $op %2)
     }
     elseif ($rgid) {
       $contactIDs = [];
-      // The thing we really need to filter out is any chaining that would 'DO SOMETHING' to the DB.
-      // criteria could be passed in via url so we want to ensure nothing could be in that url that
-      // would chain to a delete. Limiting to getfields for 'get' limits us to declared fields,
-      // although we might wish to revisit later to allow joins.
-      $validFieldsForRetrieval = civicrm_api3('Contact', 'getfields', ['action' => 'get'])['values'];
-      $filteredCriteria = isset($criteria['contact']) ? array_intersect_key($criteria['contact'], $validFieldsForRetrieval) : [];
-
       if (!empty($criteria) || !empty($searchLimit)) {
-        $contacts = civicrm_api3('Contact', 'get', array_merge([
-          'options' => ['limit' => $searchLimit],
-          'return' => 'id',
-          'check_permissions' => TRUE,
-          'contact_type' => civicrm_api3('RuleGroup', 'getvalue', ['id' => $rgid, 'return' => 'contact_type']),
-        ], $filteredCriteria));
-        $contactIDs = array_keys($contacts['values']);
+        $contactType = DedupeRuleGroup::get(FALSE)
+          ->addWhere('id', '=', $rgid)
+          ->addSelect('contact_type')
+          ->execute()->first()['contact_type'];
+        if (isset($criteria['where'])) {
+          // API v4 criteria.
+          $contacts = (array) Contact::get($checkPermissions)
+            ->addSelect('id')
+            ->setLimit($searchLimit)
+            ->setWhere($criteria['where'])
+            ->addWhere('contact_type', '=', $contactType)
+            ->execute()->indexBy('id');
+        }
+        else {
+          // The thing we really need to filter out is any chaining that would 'DO SOMETHING' to the DB.
+          // criteria could be passed in via url so we want to ensure nothing could be in that url that
+          // would chain to a delete. Limiting to getfields for 'get' limits us to declared fields,
+          // although we might wish to revisit later to allow joins.
+          $validFieldsForRetrieval = civicrm_api3('Contact', 'getfields', ['action' => 'get'])['values'];
+          $filteredCriteria = isset($criteria['contact']) ? array_intersect_key($criteria['contact'], $validFieldsForRetrieval) : [];
+
+          $contacts = civicrm_api3('Contact', 'get', array_merge([
+            'options' => ['limit' => $searchLimit],
+            'return' => 'id',
+            'check_permissions' => $checkPermissions,
+            'contact_type' => $contactType,
+          ], $filteredCriteria))['values'];
+        }
+        $contactIDs = array_keys($contacts);
 
         if (empty($contactIDs)) {
           // If there is criteria but no contacts were found then we should return now
@@ -385,8 +410,68 @@ WHERE (pn.cachekey $op %1 OR pn.cachekey $op %2)
     }
 
     if (!empty($foundDupes)) {
-      CRM_Dedupe_Finder::parseAndStoreDupePairs($foundDupes, $cacheKeyString);
+      self::parseAndStoreDupePairs($foundDupes, $cacheKeyString);
     }
+  }
+
+  /**
+   * Parse duplicate pairs into a standardised array and store in the prev_next_cache.
+   *
+   * @param array $foundDupes
+   * @param string $cacheKeyString
+   *
+   * @return array
+   *   Dupe pairs with the keys
+   *   -srcID
+   *   -srcName
+   *   -dstID
+   *   -dstName
+   *   -weight
+   *   -canMerge
+   */
+  private static function parseAndStoreDupePairs($foundDupes, $cacheKeyString) {
+    $cids = [];
+    foreach ($foundDupes as $dupe) {
+      $cids[$dupe[0]] = 1;
+      $cids[$dupe[1]] = 1;
+    }
+    $cidString = implode(', ', array_keys($cids));
+
+    $dao = CRM_Core_DAO::executeQuery("SELECT id, display_name FROM civicrm_contact WHERE id IN ($cidString) ORDER BY sort_name");
+    $displayNames = [];
+    while ($dao->fetch()) {
+      $displayNames[$dao->id] = $dao->display_name;
+    }
+
+    $userId = CRM_Core_Session::getLoggedInContactID();
+    foreach ($foundDupes as $dupes) {
+      $srcID = $dupes[1];
+      $dstID = $dupes[0];
+      // The logged in user should never be the src (ie. the contact to be removed).
+      if ($srcID == $userId) {
+        $srcID = $dstID;
+        $dstID = $userId;
+      }
+
+      $mainContacts[] = $row = [
+        'dstID' => (int) $dstID,
+        'dstName' => $displayNames[$dstID],
+        'srcID' => (int) $srcID,
+        'srcName' => $displayNames[$srcID],
+        'weight' => $dupes[2],
+        'canMerge' => TRUE,
+      ];
+
+      CRM_Core_DAO::executeQuery("INSERT INTO civicrm_prevnext_cache (entity_table, entity_id1, entity_id2, cacheKey, data) VALUES
+        ('civicrm_contact', %1, %2, %3, %4)", [
+          1 => [$dstID, 'Integer'],
+          2 => [$srcID, 'Integer'],
+          3 => [$cacheKeyString, 'String'],
+          4 => [serialize($row), 'String'],
+        ]
+      );
+    }
+    return $mainContacts;
   }
 
   /**

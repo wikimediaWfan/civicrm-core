@@ -3,6 +3,7 @@
 namespace Civi\Api4\Action\Afform;
 
 use Civi\API\Exception\UnauthorizedException;
+use Civi\Api4\AfformSubmission;
 use Civi\Api4\Utils\CoreUtil;
 
 /**
@@ -29,7 +30,6 @@ class SubmitFile extends AbstractProcessor {
   /**
    * Submission token
    * @var string
-   * @required
    */
   protected $token;
 
@@ -64,57 +64,43 @@ class SubmitFile extends AbstractProcessor {
     if (empty($_FILES['file'])) {
       throw new \CRM_Core_Exception('File upload required');
     }
-    $afformEntity = $this->_formDataModel->getEntity($this->modelName);
-    $apiEntity = $this->joinEntity ?: $afformEntity['type'];
-    $entityIndex = (int) $this->entityIndex;
-    $joinIndex = (int) $this->joinIndex;
-    $idField = CoreUtil::getIdFieldName($apiEntity);
-    if ($this->joinEntity) {
-      $entityId = $this->_entityIds[$this->modelName][$entityIndex]['joins'][$this->joinEntity][$joinIndex][$idField] ?? NULL;
+    // This uploader can be used when saving a draft or during final submission
+    if ($this->isDraft()) {
+      $draft = $this->getDraft();
     }
     else {
-      $entityId = $this->_entityIds[$this->modelName][$entityIndex][$idField] ?? NULL;
+      $entityId = $this->getEntityId();
     }
 
-    if (!$entityId) {
-      throw new \CRM_Core_Exception('Entity not found');
-    }
+    $fileField = $this->_formDataModel->getField($this->getEntityApiName(), $this->fieldName, 'create');
 
-    $attachmentParams = [
-      'entity_id' => $entityId,
-      'mime_type' => $_FILES['file']['type'],
-      'name' => $_FILES['file']['name'],
-      'options' => [
-        'move-file' => $_FILES['file']['tmp_name'],
+    $file = civicrm_api4('File', 'create', [
+      'values' => [
+        'mime_type' => $_FILES['file']['type'],
+        'file_name' => $_FILES['file']['name'],
+        'move_file' => $_FILES['file']['tmp_name'],
+        'is_public' => $fileField['input_attrs']['file_is_public'] ?? FALSE,
       ],
-    ];
+      'checkPermissions' => FALSE,
+    ])->single();
 
-    if (strpos($this->fieldName, '.')) {
-      $attachmentParams['field_name'] = $this->convertFieldNameToApi3($apiEntity, $this->fieldName);
+    if ($this->isDraft()) {
+      return $this->updateDraft($draft, $file['id']);
     }
     else {
-      $attachmentParams['entity_table'] = CoreUtil::getTableName($apiEntity);
+      return $this->updateEntity($entityId, $file['id']);
     }
-
-    $file = civicrm_api3('Attachment', 'create', $attachmentParams);
-
-    // Update multi-record custom field with value
-    if (strpos($apiEntity, 'Custom_') === 0) {
-      civicrm_api4($apiEntity, 'update', [
-        'values' => [
-          $idField => $entityId,
-          $this->fieldName => $file['id'],
-        ],
-      ]);
-    }
-
-    return [];
   }
 
   /**
    * Load entityIds from web token
    */
   protected function loadEntities() {
+    if ($this->isDraft()) {
+      // Not needed when saving a draft
+      return;
+    }
+
     /** @var \Civi\Crypto\CryptoJwt $jwt */
     $jwt = \Civi::service('crypto.jwt');
 
@@ -128,20 +114,80 @@ class SubmitFile extends AbstractProcessor {
     $this->_entityIds = $info['civiAfformSubmission']['data'];
   }
 
-  /**
-   * @param string $apiEntity
-   * @param string $fieldName
-   * @return string
-   */
-  private function convertFieldNameToApi3($apiEntity, $fieldName) {
-    if (strpos($fieldName, '.')) {
-      $fields = civicrm_api4($apiEntity, 'getFields', [
-        'checkPermissions' => FALSE,
-        'where' => [['name', '=', $fieldName]],
-      ]);
-      return 'custom_' . $fields[0]['custom_field_id'];
+  private function getEntityApiName(): string {
+    $afformEntity = $this->_formDataModel->getEntity($this->modelName);
+    return $this->joinEntity ?: $afformEntity['type'];
+  }
+
+  private function getEntityId(): mixed {
+    $apiEntity = $this->getEntityApiName();
+    $entityIndex = (int) $this->entityIndex;
+    $joinIndex = (int) $this->joinIndex;
+    $idField = CoreUtil::getIdFieldName($apiEntity);
+    if ($this->joinEntity) {
+      $entityId = $this->_entityIds[$this->modelName][$entityIndex]['joins'][$this->joinEntity][$joinIndex][$idField] ?? NULL;
     }
-    return $fieldName;
+    else {
+      $entityId = $this->_entityIds[$this->modelName][$entityIndex][$idField] ?? NULL;
+    }
+
+    if (!$entityId) {
+      throw new \CRM_Core_Exception('Entity not found');
+    }
+    return $entityId;
+  }
+
+  private function updateEntity(mixed $entityId, int $fileId): array {
+    $apiEntity = $this->getEntityApiName();
+    $idField = CoreUtil::getIdFieldName($apiEntity);
+    civicrm_api4($apiEntity, 'update', [
+      'values' => [
+        $idField => $entityId,
+        $this->fieldName => $fileId,
+      ],
+      'checkPermissions' => FALSE,
+    ]);
+    $fileInfo = $this->getFileInfo($fileId, $this->modelName);
+    return [$fileInfo];
+  }
+
+  private function getDraft(): array {
+    $cid = \CRM_Core_Session::getLoggedInContactID();
+    if (!$cid) {
+      throw new UnauthorizedException('Only authenticated users may save a draft.');
+    }
+    $draft = AfformSubmission::get(FALSE)
+      ->addWhere('contact_id', '=', $cid)
+      ->addWhere('status_id:name', '=', 'Draft')
+      ->addWhere('afform_name', '=', $this->getName())
+      ->execute()->first();
+    if (!$draft) {
+      throw new \CRM_Core_Exception('Draft not found');
+    }
+    return $draft;
+  }
+
+  private function updateDraft(array $draft, int $fileId): array {
+    $fileInfo = $this->getFileInfo($fileId, $this->modelName);
+
+    // Place fileInfo into correct entity
+    $entityData =& $draft['data'][$this->modelName][$this->entityIndex];
+    if ($this->joinEntity) {
+      $entityData['joins'][$this->joinEntity][$this->joinIndex][$this->fieldName] = $fileInfo;
+    }
+    else {
+      $entityData['fields'][$this->fieldName] = $fileInfo;
+    }
+
+    AfformSubmission::save(FALSE)
+      ->addRecord($draft)
+      ->execute();
+
+    return [$fileInfo];
+  }
+
+  private function isDraft(): bool {
+    return empty($this->token);
   }
 
 }

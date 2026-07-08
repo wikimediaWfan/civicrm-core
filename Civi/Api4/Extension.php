@@ -25,22 +25,8 @@ class Extension extends Generic\AbstractEntity {
    * @return Generic\BasicGetAction
    */
   public static function get($checkPermissions = TRUE) {
-    return (new Generic\BasicGetAction(__CLASS__, __FUNCTION__, function($action) {
-      $statuses = \CRM_Extension_System::singleton()->getManager()->getStatuses();
-      $mapper = \CRM_Extension_System::singleton()->getMapper();
-      $result = [];
-      foreach ($statuses as $key => $status) {
-        try {
-          $obj = $mapper->keyToInfo($key);
-          $info = \CRM_Extension_System::createExtendedInfo($obj);
-          $result[] = $info;
-        }
-        catch (\CRM_Extension_Exception $ex) {
-          \Civi::log()->error(sprintf('Failed to read extension (%s). Please refresh the extension list.', $key));
-        }
-      }
-      return $result;
-    }))->setCheckPermissions($checkPermissions);
+    return (new Action\Extension\Get(__CLASS__, __FUNCTION__))
+      ->setCheckPermissions($checkPermissions);
   }
 
   /**
@@ -74,6 +60,40 @@ class Extension extends Generic\AbstractEntity {
           'name' => 'tags',
           'data_type' => 'Array',
           'description' => "Tags which characterize the extension's purpose or functionality",
+        ],
+        [
+          'name' => 'path',
+          'description' => 'Absolute file path',
+        ],
+        [
+          'name' => 'releaseDate',
+          'description' => 'Release date',
+        ],
+        [
+          'name' => 'compatibility',
+          'description' => 'CiviCRM compatibility',
+        ],
+        [
+          'name' => 'develStage',
+          'description' => 'Development stage',
+        ],
+        [
+          'name' => 'urls',
+          'data_type' => 'Array',
+          'description' => 'URLs for extension page, documentation, licensing and support',
+        ],
+        [
+          'name' => 'authors',
+          'data_type' => 'Array',
+          'description' => 'Authors',
+        ],
+        [
+          'name' => 'license',
+          'description' => 'License',
+        ],
+        [
+          'name' => 'comments',
+          'description' => 'Comments',
         ],
         [
           'name' => 'status',

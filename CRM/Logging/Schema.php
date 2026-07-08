@@ -9,6 +9,8 @@
  +--------------------------------------------------------------------+
  */
 
+use Civi\Core\Exception\DBQueryException;
+
 /**
  *
  * @package CRM
@@ -50,7 +52,7 @@ class CRM_Logging_Schema {
    * @var array
    */
   private $exceptions = [
-    'civicrm_job' => ['last_run'],
+    'civicrm_job' => ['last_run', 'last_run_end'],
     'civicrm_group' => ['cache_date', 'refresh_date'],
   ];
 
@@ -161,6 +163,9 @@ AND    TABLE_NAME LIKE 'civicrm_%'
     // Don't log sessions
     $this->tables = preg_grep('/^civicrm_session/', $this->tables, PREG_GREP_INVERT);
 
+    // Don't log entity tables.
+    $this->tables = preg_grep('/^civicrm_sk_/', $this->tables, PREG_GREP_INVERT);
+
     // do not log civicrm_mailing_recipients table, CRM-16193
     $this->tables = array_diff($this->tables, ['civicrm_mailing_recipients']);
     $this->logTableSpec = array_fill_keys($this->tables, []);
@@ -203,13 +208,11 @@ AND    (TABLE_NAME LIKE 'log_civicrm_%' $nonStandardTableNameString )
    */
   public function entityCustomDataLogTables($extends) {
     $customGroupTables = [];
-    $customGroupDAO = CRM_Core_BAO_CustomGroup::getAllCustomGroupsByBaseEntity($extends);
-    $customGroupDAO->find();
-    while ($customGroupDAO->fetch()) {
-      // logging is disabled for the table (e.g by hook) then $this->logs[$customGroupDAO->table_name]
+    foreach (CRM_Core_BAO_CustomGroup::getAll(['extends' => $extends]) as $customGroup) {
+      // logging is disabled for the table (e.g by hook) then $this->logs[$customGroup['table_name']]
       // will be empty.
-      if (!empty($this->logs[$customGroupDAO->table_name])) {
-        $customGroupTables[$customGroupDAO->table_name] = $this->logs[$customGroupDAO->table_name];
+      if (!empty($this->logs[$customGroup['table_name']])) {
+        $customGroupTables[$customGroup['table_name']] = $this->logs[$customGroup['table_name']];
       }
     }
     return $customGroupTables;
@@ -429,8 +432,10 @@ AND    (TABLE_NAME LIKE 'log_civicrm_%' $nonStandardTableNameString )
    *   name of the relevant table.
    * @param array $cols
    *   Mixed array of columns to add or null (to check for the missing columns).
+   * @param bool $resetTableCache
+   *   Refresh the cache for table before calculating the differences with log table.
    */
-  public function fixSchemaDifferencesFor(string $table, array $cols = []): void {
+  public function fixSchemaDifferencesFor(string $table, array $cols = [], bool $resetTableCache = FALSE): void {
     if (!in_array($table, $this->tables, TRUE)) {
       // Create the table if the log table does not exist and
       // the table is in 'this->tables'. This latter array
@@ -443,13 +448,17 @@ AND    (TABLE_NAME LIKE 'log_civicrm_%' $nonStandardTableNameString )
       return;
     }
 
+    if ($resetTableCache) {
+      $this->resetSchemaCacheForTable($table);
+    }
+    $this->resetSchemaCacheForTable("log_$table");
+
     if (empty($cols)) {
       $cols = $this->columnsWithDiffSpecs($table, "log_$table");
     }
 
     // If a column that already exists on logging table is being added, we
     // should treat it as a modification.
-    $this->resetSchemaCacheForTable("log_$table");
     $logTableSchema = $this->columnSpecsOf("log_$table");
     if (!empty($cols['ADD'])) {
       foreach ($cols['ADD'] as $colKey => $col) {
@@ -621,11 +630,17 @@ AND    (TABLE_NAME LIKE 'log_civicrm_%' $nonStandardTableNameString )
   private function columnsOf($table, $force = FALSE) {
     if ($force || !isset(\Civi::$statics[__CLASS__]['columnsOf'][$table])) {
       $from = (substr($table, 0, 4) == 'log_') ? "`{$this->db}`.$table" : $table;
-      $dao = CRM_Core_DAO::executeQuery("SHOW COLUMNS FROM $from", [], TRUE, NULL, FALSE, FALSE);
-      if (is_a($dao, 'DB_Error')) {
+      \Civi::$statics[__CLASS__]['columnsOf'][$table] = [];
+      try {
+        $dao = CRM_Core_DAO::executeQuery("SHOW COLUMNS FROM $from", [], TRUE, NULL, FALSE, FALSE);
+      }
+      catch (DBQueryException $e) {
         return [];
       }
-      \Civi::$statics[__CLASS__]['columnsOf'][$table] = [];
+      if (is_a($dao, 'DB_Error')) {
+        // This should be unreachable - we expect an exception to be thrown per above.
+        return [];
+      }
       while ($dao->fetch()) {
         \Civi::$statics[__CLASS__]['columnsOf'][$table][] = CRM_Utils_Type::escape($dao->Field, 'MysqlColumnNameOrAlias');
       }
@@ -679,7 +694,7 @@ WHERE  table_schema IN ('{$this->db}', '{$civiDB}')";
           $parValue = substr(
             $dao->COLUMN_TYPE, $first + 1, strpos($dao->COLUMN_TYPE, ')') - $first - 1
           );
-          if (strpos($parValue, "'") === FALSE) {
+          if (!str_contains($parValue, "'")) {
             // no quote in value means column length
             \Civi::$statics[__CLASS__]['columnSpecs'][$dao->TABLE_NAME][$dao->COLUMN_NAME]['LENGTH'] = $parValue;
           }
@@ -723,7 +738,7 @@ WHERE  table_schema IN ('{$this->db}', '{$civiDB}')";
           // ignore 'id' column for any spec changes, to avoid any auto-increment mysql errors
           if ($civiTableSpecs[$col]['DATA_TYPE'] != ($logTableSpecs[$col]['DATA_TYPE'] ?? NULL)
             // We won't alter the log if the length is decreased in case some of the existing data won't fit.
-            || CRM_Utils_Array::value('LENGTH', $civiTableSpecs[$col]) > CRM_Utils_Array::value('LENGTH', $logTableSpecs[$col])
+            || ($civiTableSpecs[$col]['LENGTH'] ?? 0) > ($logTableSpecs[$col]['LENGTH'] ?? 0)
           ) {
             // if data-type is different, surely consider the column
             $diff['MODIFY'][] = $col;
@@ -778,12 +793,31 @@ WHERE  table_schema IN ('{$this->db}', '{$civiDB}')";
   }
 
   /**
+   * Return a list of log table names.
+   *
+   * @return array
+   */
+  public function getLogTableNames() {
+    return array_values($this->logs);
+  }
+
+  /**
    * Create a log table with schema mirroring the given table’s structure and seeding it with the given table’s contents.
    *
    * @param string $table
    */
-  private function createLogTableFor($table) {
-    $dao = CRM_Core_DAO::executeQuery("SHOW CREATE TABLE $table", [], TRUE, NULL, FALSE, FALSE);
+  private function createLogTableFor(string $table): void {
+    try {
+      $dao = CRM_Core_DAO::executeQuery("SHOW CREATE TABLE $table", [], TRUE, NULL, FALSE, FALSE);
+    }
+    catch (DBQueryException $e) {
+      if ($e->getSQLErrorCode() === 1146) {
+        // This would happen if an extension was registering a log table where the main table is deleted.
+        \Civi::log()->warning('Could not create log table for non-existent table ' . $table);
+        unset($this->tables[$table]);
+        return;
+      }
+    }
     $dao->fetch();
     $query = $dao->Create_Table;
 
@@ -815,7 +849,7 @@ COLS;
     $query = preg_replace("/^  [^`].*$/m", '', $query);
     $engine = strtoupper(empty($this->logTableSpec[$table]['engine']) ? self::ENGINE : $this->logTableSpec[$table]['engine']);
     $engine .= " " . ($this->logTableSpec[$table]['engine_config'] ?? '');
-    if (strpos($engine, 'ROW_FORMAT') !== FALSE) {
+    if (str_contains($engine, 'ROW_FORMAT')) {
       $query = preg_replace("/ROW_FORMAT=\w+/m", '', $query);
     }
     $query = preg_replace("/^\) ENGINE=[^ ]+ /im", ') ENGINE=' . $engine . ' ', $query);
@@ -960,6 +994,8 @@ COLS;
         $tableExceptions = array_key_exists('exceptions', $this->logTableSpec[$table]) ? $this->logTableSpec[$table]['exceptions'] : [];
         // ignore modified_date changes
         $tableExceptions[] = 'modified_date';
+        // Ignore cache_fill_took column on civicrm_group.
+        $tableExceptions[] = 'cache_fill_took';
         // exceptions may be provided with or without backticks
         $excludeColumn = in_array($column, $tableExceptions) ||
           in_array(str_replace('`', '', $column), $tableExceptions);

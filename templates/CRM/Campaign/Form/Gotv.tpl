@@ -100,7 +100,7 @@
 
       //collapse the search form.
       var searchFormName = '#search_form_' + {/literal}'{$searchVoterFor}'{literal};
-      CRM.$( searchFormName + '.crm-accordion-wrapper:not(.collapsed)').crmAccordionToggle();
+      CRM.$( searchFormName + 'details').prop('open', false);
     }, 'html' );
   }
 
@@ -215,7 +215,9 @@
         }
       },
       'json'
-    );
+    ).fail(function() {
+      CRM.alert('{/literal}{ts escape="js"}Unable to complete the request. The server returned an error or could not be reached.{/ts}{literal}', '{/literal}{ts escape="js"}Request Failed{/ts}{literal}', 'error');
+    });
   }
 </script>
 {/literal}

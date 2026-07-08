@@ -19,18 +19,26 @@
  * This class provides the common functionality for sending email to
  * one or a group of contact ids. This class is reused by all the search
  * components in CiviCRM (since they all have send email as a task)
+ *
+ * @deprecated since 6.13 and will be removed around 6.20.
  */
 class CRM_Contact_Form_Task_EmailCommon {
 
   /**
    * Pre Process Form Addresses to be used in Quickform
    *
-   * @param CRM_Core_Form $form
+   * This doesn't really do much - use part should be transferred back to caller
+   * and noisy deprecation added.
+   *
+   * @param object $form
    * @param bool $bounce determine if we want to throw a status bounce.
+   *
+   * @deprecated since 2024 and will be removed around 6.20
    *
    * @throws \CRM_Core_Exception
    */
   public static function preProcessFromAddress(&$form, $bounce = TRUE) {
+    CRM_Core_Error::deprecatedFunctionWarning('no replacement');
     $form->_emails = [];
 
     // @TODO remove these line and to it somewhere more appropriate. Currently some classes (e.g Case

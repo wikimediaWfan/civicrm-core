@@ -11,6 +11,8 @@
 
 namespace Civi\Api4\Generic;
 
+use Psr\Log\LogLevel;
+
 /**
  * Container for api results.
  *
@@ -35,6 +37,10 @@ class Result extends \ArrayObject implements \JsonSerializable {
    * @var array
    */
   public $debug;
+  /**
+   * @var array
+   */
+  private array $errors = [];
   /**
    * Api version
    * @var int
@@ -107,6 +113,8 @@ class Result extends \ArrayObject implements \JsonSerializable {
    *
    * Drops any item from the results that does not contain the specified key
    *
+   * Unlike $this->rekey, this rewrites the row keys not the column keys.
+   *
    * @param string $key
    * @return $this
    * @throws \CRM_Core_Exception
@@ -156,16 +164,19 @@ class Result extends \ArrayObject implements \JsonSerializable {
    *
    * @return int
    */
-  public function countFetched() :int {
+  public function countFetched(): int {
     return parent::count();
   }
 
   /**
-   * Returns the number of results
+   * Returns the number of results matched. This is different from the number of results returned:
+   *
+   * - For `get` actions, this is the total number of records regardless of LIMIT, so can be >= the number of results returned.
+   * - For `save` actions, this is the number of records UPDATED (not created), so can be <= the number of results returned.
    *
    * @return int
    */
-  public function countMatched() :int {
+  public function countMatched(): int {
     if (!isset($this->matchedCount)) {
       throw new \CRM_Core_Exception("countMatched can only be used if there was no limit set or if row_count was included in the select fields.");
     }
@@ -174,31 +185,137 @@ class Result extends \ArrayObject implements \JsonSerializable {
 
   /**
    * Provides a way for API implementations to set the *matched* count.
-   *
-   * The matched count is the number of matching entities, regardless of any imposed limit clause.
    */
   public function setCountMatched(int $c) {
     $this->matchedCount = $c;
+  }
 
-    // Set rowCount for backward compatibility.
-    $this->rowCount = $c;
+  public function hasCountMatched(): bool {
+    return isset($this->matchedCount);
+  }
+
+  /**
+   * @return \Civi\Api4\Generic\Error[]
+   */
+  public function getErrors(): array {
+    return $this->errors;
+  }
+
+  /**
+   * @param \Civi\Api4\Generic\Error[] $errors
+   * @return $this
+   */
+  public function setErrors(array $errors) {
+    $this->errors = $errors;
+    return $this;
+  }
+
+  /**
+   * @param string $message The human readable error message
+   * @param bool $log Should we log the error
+   * @param int|string $code The machine readable error code/message
+   * @param string $title Optional title for the error message
+   * @param string $level Level (using Psr/LogLevel strings) of error, eg. warning, error
+   * @param array $metadata Array of extra metadata that can be added to the error
+   *
+   * @return $this
+   */
+  public function addError(string $message, bool $log = FALSE, int|string $code = 0, string $title = '', string $level = LogLevel::ERROR, array $metadata = []) {
+    $error = new Error($message, $code, $title, $level, $metadata);
+    $this->errors[] = $error;
+    if ($log) {
+      $context = [
+        'entity' => $this->entity,
+        'action' => $this->action,
+        'error_id' => $error->getId(),
+        'error_code' => $code,
+      ];
+      \Civi::log()->log($level, $error->getMessage(), $context);
+    }
+    return $this;
+  }
+
+  /**
+   * Helper function to check if any errors were defined
+   *
+   * @return bool
+   */
+  public function hasErrors(): bool {
+    return count($this->errors) > 0;
+  }
+
+  /**
+   * Ordered by most serious first. These are the levels that are treated as an "error".
+   *
+   * @var array
+   */
+  private array $errorLevels = [
+    LogLevel::EMERGENCY,
+    LogLevel::ALERT,
+    LogLevel::CRITICAL,
+    LogLevel::ERROR,
+  ];
+
+  /**
+   * Helper function to get the maximum severity of error
+   *
+   * @return string|null
+   */
+  public function getMaxErrorLevel(): ?string {
+    $levels = [];
+    foreach ($this->errors as $error) {
+      $levels[] = $error->getLevel();
+    }
+    // Returns the first match (ie. the most severe)
+    return current(array_filter(
+      $this->errorLevels,
+      fn($level) => in_array($level, $levels)
+    )) ?: NULL;
+  }
+
+  /**
+   * We might have defined "errors" which are level info, warning and should be shown to the user but won't "fail" validation.
+   * If we return TRUE, assume we have something that needs resolving / is invalid.
+   *
+   * @return bool
+   */
+  public function isBlockingError(): bool {
+    return in_array($this->getMaxErrorLevel(), $this->errorLevels);
   }
 
   /**
    * Reduce each result to one field
    *
-   * @param $name
+   * @param string $columnName
+   * @param string|null $indexBy
    * @return array
    */
-  public function column($name) {
-    return array_column($this->getArrayCopy(), $name, $this->indexedBy);
+  public function column($columnName, $indexBy = NULL): array {
+    return array_column($this->getArrayCopy(), $columnName, $indexBy ?? $this->indexedBy);
+  }
+
+  /**
+   * Rewrite keys in each result according to a map or a callback function.
+   *
+   * Unlike $this->indexBy, this rewrites the column keys not the row keys.
+   *
+   * @param array|callable $map
+   *   Map of keys to convert e.g. `[old_key => new_key]`
+   *   Or a callback function like `fn($key, $value) => $newKey`
+   * @return $this
+   */
+  public function rekey($map) {
+    $callback = is_callable($map) ? $map : fn($key) => $map[$key] ?? $key;
+    foreach ($this as &$items) {
+      $items = \CRM_Utils_Array::rekey($items, $callback);
+    }
+    return $this;
   }
 
   /**
    * @return array
    */
-  #[\ReturnTypeWillChange]
-  public function jsonSerialize() {
+  public function jsonSerialize(): array {
     return $this->getArrayCopy();
   }
 

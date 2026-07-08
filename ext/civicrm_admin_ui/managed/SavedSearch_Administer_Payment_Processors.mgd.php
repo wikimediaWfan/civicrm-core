@@ -1,6 +1,11 @@
 <?php
 use CRM_CivicrmAdminUi_ExtensionUtil as E;
 
+// Temporary check can be removed when moving this file to the civi_contribute extension.
+if (!CRM_Core_Component::isEnabled('CiviContribute')) {
+  return [];
+}
+
 return [
   [
     'name' => 'SavedSearch_Administer_Payment_Processors',
@@ -84,6 +89,7 @@ return [
           'classes' => [
             'table',
             'table-striped',
+            'crm-sticky-header',
           ],
           'pager' => [
             'show_count' => TRUE,
@@ -96,71 +102,59 @@ return [
             [
               'type' => 'field',
               'key' => 'id',
-              'dataType' => 'Integer',
-              'label' => E::ts('ID'),
+              'label' => 'ID',
               'sortable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'name',
-              'dataType' => 'String',
-              'label' => E::ts('Name'),
+              'label' => 'Name',
               'sortable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'title',
-              'dataType' => 'String',
-              'label' => E::ts('Title'),
+              'label' => 'Title',
               'sortable' => TRUE,
               'editable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'description',
-              'dataType' => 'String',
-              'label' => E::ts('Description'),
+              'label' => 'Description',
               'sortable' => TRUE,
               'editable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'payment_processor_type_id:label',
-              'dataType' => 'Integer',
-              'label' => E::ts('Type'),
+              'label' => 'Type',
               'sortable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'PaymentProcessor_EntityFinancialAccount_FinancialAccount_01.name',
-              'dataType' => 'String',
-              'label' => E::ts('Financial Account'),
+              'label' => 'Financial Account',
               'sortable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'is_active',
-              'dataType' => 'Boolean',
-              'label' => E::ts('Enabled'),
+              'label' => 'Enabled',
               'sortable' => TRUE,
               'editable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'is_default',
-              'dataType' => 'Boolean',
-              'label' => E::ts('Default'),
+              'label' => 'Default',
               'sortable' => TRUE,
-              'rewrite' => ' ',
+              'rewrite' => '[none]',
               'icons' => [
                 [
-                  'icon' => 'fa-check-square-o',
+                  'icon' => 'fa-check',
                   'side' => 'left',
-                  'if' => [
-                    'is_default',
-                    '=',
-                    TRUE,
-                  ],
+                  'if' => ['is_default', '=', TRUE],
                 ],
               ],
             ],
@@ -171,9 +165,10 @@ return [
                   'entity' => 'PaymentProcessor',
                   'action' => 'update',
                   'join' => '',
-                  'target' => 'crm-popup',
+                  // NOTE: CiviConnect behaviors currently incompatbile with loading manage form in AJAX popup
+                  // 'target' => 'crm-popup',
                   'icon' => 'fa-pencil',
-                  'text' => E::ts('Edit'),
+                  'text' => 'Edit',
                   'style' => 'default',
                   'path' => '',
                   'condition' => [],
@@ -183,18 +178,18 @@ return [
                   'entity' => 'PaymentProcessor',
                   'target' => 'crm-popup',
                   'icon' => 'fa-toggle-on',
-                  'text' => E::ts('Enable'),
+                  'text' => 'Enable',
                   'style' => 'default',
-                  'condition' => ['is_active', '=', FALSE],
+                  'condition' => [],
                 ],
                 [
                   'task' => 'disable',
                   'entity' => 'PaymentProcessor',
                   'target' => 'crm-popup',
                   'icon' => 'fa-toggle-off',
-                  'text' => E::ts('Disable'),
+                  'text' => 'Disable',
                   'style' => 'default',
-                  'condition' => ['is_active', '=', TRUE],
+                  'condition' => [],
                 ],
                 [
                   'entity' => 'PaymentProcessor',
@@ -202,7 +197,7 @@ return [
                   'join' => '',
                   'target' => 'crm-popup',
                   'icon' => 'fa-trash',
-                  'text' => E::ts('Delete'),
+                  'text' => 'Delete',
                   'style' => 'danger',
                   'path' => '',
                   'condition' => [],
@@ -217,9 +212,10 @@ return [
             [
               'entity' => 'PaymentProcessor',
               'action' => 'add',
-              'target' => 'crm-popup',
+              // NOTE: CiviConnect behaviors currently incompatbile with loading manage form in AJAX popup
+              // 'target' => 'crm-popup',
               'style' => 'primary',
-              'text' => E::ts('Add Payment Processor'),
+              'text' => 'Add Payment Processor',
               'icon' => 'fa-plus',
             ],
           ],

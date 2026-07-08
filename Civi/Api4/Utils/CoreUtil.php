@@ -12,7 +12,6 @@
 
 namespace Civi\Api4\Utils;
 
-use Civi\API\Exception\NotImplementedException;
 use Civi\API\Exception\UnauthorizedException;
 use Civi\API\Request;
 use Civi\Api4\Generic\AbstractAction;
@@ -26,23 +25,29 @@ class CoreUtil {
   }
 
   /**
-   * @param $entityName
+   * @param string $entityName
    *
    * @return \CRM_Core_DAO|string
    *   The BAO name for use in static calls. Return doc block is hacked to allow
    *   auto-completion of static methods
    */
-  public static function getBAOFromApiName($entityName): ?string {
+  public static function getBAOFromApiName(string $entityName): ?string {
     // TODO: It would be nice to just call self::getInfoItem($entityName, 'dao')
     // but that currently causes test failures, probably due to early-bootstrap issues.
-    if ($entityName === 'CustomValue' || strpos($entityName, 'Custom_') === 0) {
+    if ($entityName === 'CustomValue' || str_starts_with($entityName, 'Custom_')) {
       $dao = \Civi\Api4\CustomValue::getInfo()['dao'];
     }
     else {
-      $dao = AllCoreTables::getFullName($entityName);
+      $dao = AllCoreTables::getDAONameForEntity($entityName);
     }
     if (!$dao && self::isContact($entityName)) {
       $dao = 'CRM_Contact_DAO_Contact';
+    }
+    // Last resort (added for the sake of SqlView APIs which are not registered with AllCoreTables).
+    // Again, all this could be avoided if we could just call self::getInfoItem.
+    $className = 'Civi\Api4\\' . $entityName;
+    if (!$dao && class_exists($className)) {
+      $dao = $className::getInfo()['dao'] ?? NULL;
     }
     return $dao ? AllCoreTables::getBAOClassName($dao) : NULL;
   }
@@ -56,7 +61,7 @@ class CoreUtil {
    * @return string|null
    */
   public static function getApiNameFromBAO($baoClassName): ?string {
-    $briefName = AllCoreTables::getBriefName($baoClassName);
+    $briefName = AllCoreTables::getEntityNameForClass($baoClassName);
     return $briefName && self::getApiClass($briefName) ? $briefName : NULL;
   }
 
@@ -136,12 +141,28 @@ class CoreUtil {
   }
 
   /**
+   * Get sql for table, including database prefix if needed
+   *
+   * @param string $entityName
+   *
+   * @return string|null
+   */
+  public static function getTableExpr(string $entityName): ?string {
+    $tableName = self::getInfoItem($entityName, 'table_name');
+    $databaseName = self::getInfoItem($entityName, 'database_name');
+    if ($databaseName) {
+      return "`$databaseName`.`$tableName`";
+    }
+    return "`$tableName`";
+  }
+
+  /**
    * Given a sql table name, return the name of the api entity.
    *
    * @param string $tableName
    * @return string|NULL
    */
-  public static function getApiNameFromTableName($tableName): ?string {
+  public static function getApiNameFromTableName(string $tableName): ?string {
     $provider = \Civi::service('action_object_provider');
     foreach ($provider->getEntities() as $entityName => $info) {
       if (($info['table_name'] ?? NULL) === $tableName) {
@@ -162,6 +183,8 @@ class CoreUtil {
     $operators = \CRM_Core_DAO::acceptedSQLOperators();
     $operators[] = 'CONTAINS';
     $operators[] = 'NOT CONTAINS';
+    $operators[] = 'CONTAINS ONE OF';
+    $operators[] = 'NOT CONTAINS ONE OF';
     $operators[] = 'IS EMPTY';
     $operators[] = 'IS NOT EMPTY';
     $operators[] = 'REGEXP';
@@ -211,21 +234,10 @@ class CoreUtil {
       return [
         'extends' => [$entityName],
         'column' => 'id',
-        'grouping' => ($customGroupExtends[$entityName]['grouping'] ?: array_column(\CRM_Utils_Array::findAll($extendsSubGroups, ['extends' => $entityName]), 'grouping', 'id')) ?: NULL,
+        'grouping' => ($customGroupExtends[$entityName]['grouping'] ?: array_column(\CRM_Utils_Array::filter($extendsSubGroups, ['extends' => $entityName]), 'grouping', 'id')) ?: NULL,
       ];
     }
     return NULL;
-  }
-
-  /**
-   * Checks if a custom group exists and is multivalued
-   *
-   * @param $customGroupName
-   * @return bool
-   * @throws \CRM_Core_Exception
-   */
-  public static function isCustomEntity($customGroupName): bool {
-    return $customGroupName && \CRM_Core_DAO::getFieldValue('CRM_Core_DAO_CustomGroup', $customGroupName, 'is_multiple', 'name');
   }
 
   /**
@@ -238,13 +250,13 @@ class CoreUtil {
    * @return bool|null
    * @throws \CRM_Core_Exception
    */
-  public static function checkAccessRecord(AbstractAction $apiRequest, array $record, int $userID = NULL): ?bool {
+  public static function checkAccessRecord(AbstractAction $apiRequest, array $record, ?int $userID = NULL): ?bool {
     $userID ??= \CRM_Core_Session::getLoggedInContactID() ?? 0;
     $idField = self::getIdFieldName($apiRequest->getEntityName());
 
     // For get actions, just run a get and ACLs will be applied to the query.
     // It's a cheap trick and not as efficient as not running the query at all,
-    // but BAO::checkAccess doesn't consistently check permissions for the "get" action.
+    // but authorizeRecord doesn't consistently check permissions for the "get" action.
     if (is_a($apiRequest, '\Civi\Api4\Generic\AbstractGetAction')) {
       return (bool) $apiRequest->addSelect($idField)->addWhere($idField, '=', $record[$idField])->execute()->count();
     }
@@ -252,18 +264,16 @@ class CoreUtil {
     $event = new \Civi\Api4\Event\AuthorizeRecordEvent($apiRequest, $record, $userID);
     \Civi::dispatcher()->dispatch('civi.api4.authorizeRecord', $event);
 
-    // Note: $bao::_checkAccess() is a quasi-listener. TODO: Convert to straight-up listener.
+    // $bao::_checkAccess() is deprecated in favor of `civi.api4.authorizeRecord` event.
     if ($event->isAuthorized() === NULL) {
       $baoName = self::getBAOFromApiName($apiRequest->getEntityName());
       if ($baoName && method_exists($baoName, '_checkAccess')) {
+        \CRM_Core_Error::deprecatedWarning("$baoName::_checkAccess is deprecated and should be replaced with 'civi.api4.authorizeRecord' event listener.");
         $authorized = $baoName::_checkAccess($event->getEntityName(), $event->getActionName(), $event->getRecord(), $event->getUserID());
         $event->setAuthorized($authorized);
       }
-      else {
-        $event->setAuthorized(TRUE);
-      }
     }
-    return $event->isAuthorized();
+    return $event->isAuthorized() ?? TRUE;
   }
 
   /**
@@ -314,17 +324,35 @@ class CoreUtil {
    * @param string $entityName
    * @param int $entityId
    * @return array{name: string, type: string, count: int, table: string|null, key: string|null}[]
-   * @throws NotImplementedException
    */
   public static function getRefCount(string $entityName, $entityId): array {
-    $daoName = self::getInfoItem($entityName, 'dao');
-    if (!$daoName) {
-      throw new NotImplementedException("Cannot getRefCount for $entityName - dao not found.");
+    $idField = self::getIdFieldName($entityName);
+    // If entity doesn't exist there are no refs to count
+    $exists = civicrm_api4($entityName, 'get', [
+      'checkPermissions' => FALSE,
+      'select' => [$idField],
+      'where' => [[$idField, '=', $entityId]],
+    ])->countFetched();
+    if (!$exists) {
+      return [];
     }
-    /** @var \CRM_Core_DAO $dao */
-    $dao = new $daoName();
-    $dao->id = $entityId;
-    return $dao->getReferenceCounts();
+    $entity = \Civi::entity($entityName);
+    return $entity->getReferenceCounts([$idField => $entityId]);
+  }
+
+  /**
+   * Gets total number of references
+   *
+   * @param string $entityName
+   * @param $entityId
+   * @return int
+   */
+  public static function getRefCountTotal(string $entityName, $entityId): int {
+    $total = 0;
+    foreach (self::getRefCount($entityName, $entityId) as $ref) {
+      $total += $ref['count'] ?? 0;
+    }
+    return $total;
   }
 
   /**
@@ -358,21 +386,14 @@ class CoreUtil {
   /**
    * Get the suffixes supported by a given option group
    *
-   * @param string|int $optionGroup
-   *   OptionGroup id or name
-   * @param string $key
-   *   Is $optionGroup being passed as "id" or "name"
+   * @deprecated use \CRM_Core_BAO_OptionGroup::getSuffixes()
+   *
+   * @param string $optionGroup
+   *   OptionGroup name
    * @return array
    */
-  public static function getOptionValueFields($optionGroup, $key = 'name'): array {
-    // Prevent crash during upgrade
-    if (array_key_exists('option_value_fields', \CRM_Core_DAO_OptionGroup::getSupportedFields())) {
-      $fields = \CRM_Core_DAO::getFieldValue('CRM_Core_DAO_OptionGroup', $optionGroup, 'option_value_fields', $key);
-    }
-    if (!isset($fields)) {
-      return ['name', 'label', 'description'];
-    }
-    return explode(',', $fields);
+  public static function getOptionValueFields(string $optionGroup): array {
+    return \CRM_Core_BAO_OptionGroup::getOptionValueFields($optionGroup);
   }
 
   /**
@@ -414,6 +435,33 @@ class CoreUtil {
       $formatted[] = array_intersect_key($option, array_flip($format));
     }
     return $formatted;
+  }
+
+  public static function formatViewValue(string $entityName, string $fieldName, array $values, string $action = 'get') {
+    if (!isset($values[$fieldName]) || $values[$fieldName] === '') {
+      return '';
+    }
+    $params = [
+      'action' => $action,
+      'where' => [['name', '=', $fieldName]],
+      'loadOptions' => ['id', 'label'],
+      'checkPermissions' => FALSE,
+      'values' => $values,
+    ];
+    $fieldInfo = civicrm_api4($entityName, 'getFields', $params)->single();
+    $dataType = $fieldInfo['data_type'] ?? NULL;
+    if (!empty($fieldInfo['options'])) {
+      return FormattingUtil::replacePseudoconstant(array_column($fieldInfo['options'], 'label', 'id'), $values[$fieldName]);
+    }
+    elseif ($dataType === 'Boolean') {
+      return $values[$fieldName] ? ts('Yes') : ts('No');
+    }
+    elseif ($dataType === 'Date' || $dataType === 'Timestamp') {
+      $values[$fieldName] = \CRM_Utils_Date::customFormat($values[$fieldName]);
+    }
+    if (is_array($values[$fieldName])) {
+      $values[$fieldName] = implode(', ', $values[$fieldName]);
+    }
   }
 
   /**

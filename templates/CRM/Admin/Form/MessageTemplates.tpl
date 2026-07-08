@@ -13,6 +13,7 @@
     {ts}Use this form to add or edit re-usable message templates.{/ts} {help id="id-intro" file="CRM/Admin/Page/MessageTemplates.hlp"}
   </div>
 {/if}
+{capture assign='tokenTitle'}{ts}Tokens{/ts}{/capture}
 
 <h3>{if $action eq 1}{ts}New Message Template{/ts}{elseif $action eq 2}{ts}Edit Message Template{/ts}{else}{ts}Delete Message Template{/ts}{/if}</h3>
 
@@ -38,12 +39,10 @@
           </td>
         </tr>
         <tr>
-          <td class="label-left">{$form.msg_subject.label}</td>
+          <td class="label-left">{$form.msg_subject.label} {help id="id-token-subject" tplFile=$tplFile file="CRM/Contact/Form/Task/Email.hlp" title=$tokenTitle}</td>
           <td>
             {$form.msg_subject.html|crmAddClass:huge}
-            <input class="crm-token-selector big" data-field="msg_subject" />
-            {help id="id-token-subject" tplFile=$tplFile file="CRM/Contact/Form/Task/Email.hlp"}
-          </td>
+            <input class="crm-token-selector big" data-field="msg_subject" /></td>
         </tr>
         <tr>
           <td class="label-left">{$form.file_id.label}</td>
@@ -51,10 +50,10 @@
             {if !empty($attachment)}
             {foreach from=$attachment key=attKey item=attVal}
             <div class="crm-attachment-wrapper crm-entity" id="file_{$attVal.fileID}">
-              <strong><a class="crm-attachment" href="{$attVal.url}">{$attVal.cleanName}</a></strong>
+              <strong><a class="crm-attachment" href="{$attVal.url}" target="_blank">{$attVal.cleanName}</a></strong>
               {if $attVal.description}&nbsp;-&nbsp;{$attVal.description}{/if}
               {if $attVal.deleteURLArgs}
-                <a href="#" class="crm-hover-button delete-attachment" data-mimetype="{$attVal.mime_type}" data-filename="{$attVal.cleanName}" data-args="{$attVal.deleteURLArgs}" title="{ts}Delete File{/ts}"><span class="icon delete-icon"></span></a>
+                <a href="#" class="crm-hover-button delete-attachment" data-mimetype="{$attVal.mime_type}" data-filename="{$attVal.cleanName}" data-args="{$attVal.deleteURLArgs}" title="{ts escape='htmlattribute'}Delete File{/ts}"><span class="icon delete-icon"></span></a>
               {/if}
               {include file="CRM/Form/attachmentjs.tpl" context='MessageTemplate'}
               {/foreach}
@@ -65,53 +64,52 @@
         <tr>
       </table>
 
-      <div id="msg_html_section" class="crm-accordion-wrapper crm-html_email-accordion ">
-        <div class="crm-accordion-header">
-          {ts}HTML Format{/ts}
-          {help id="id-message-text" file="CRM/Contact/Form/Task/Email.hlp"}
-        </div><!-- /.crm-accordion-header -->
+      <details id="msg_html_section" class="crm-accordion-bold crm-html_email-accordion " open>
+        <summary>
+          {ts}Message Body{/ts}
+        </summary>
         <div class="crm-accordion-body">
           <div class="helpIcon" id="helphtml">
             <input class="crm-token-selector big" data-field="msg_html" />
-            {help id="id-token-html" tplFile=$tplFile file="CRM/Contact/Form/Task/Email.hlp"}
+            {help id="id-token-html" tplFile=$tplFile file="CRM/Contact/Form/Task/Email.hlp" title=$tokenTitle}
           </div>
           <div class="clear"></div>
           <div class='html'>
             {$form.msg_html.html|crmAddClass:huge}
           </div>
-        </div><!-- /.crm-accordion-body -->
-      </div><!-- /.crm-accordion-wrapper -->
+        </div>
+      </details>
 
-      <div id="msg_text_section" class="crm-accordion-wrapper crm-plaint_text_email-accordion ">
-        <div class="crm-accordion-header">
+      <details id="msg_text_section" class="crm-accordion-bold crm-plaint_text_email-accordion " open>
+        <summary>
           {ts}Optional Plain-Text Format{/ts}
-          {help id="id-message-plain" file="CRM/Contact/Form/Task/Email.hlp"}
-        </div><!-- /.crm-accordion-header -->
+          {help id="msg_text" file="CRM/Contact/Form/Task/Email.hlp" title=$form.msg_text.textLabel}
+        </summary>
         <div class="crm-accordion-body">
           <div class="helpIcon" id="helptext">
             <input class="crm-token-selector big" data-field="msg_text" />
-            {help id="id-token-text" tplFile=$tplFile file="CRM/Contact/Form/Task/Email.hlp"}
+            {help id="id-token-text" tplFile=$tplFile file="CRM/Contact/Form/Task/Email.hlp" title=$tokenTitle}
           </div>
           <div class="clear"></div>
           <div class='text'>
             {$form.msg_text.html|crmAddClass:huge}
           </div>
-        </div><!-- /.crm-accordion-body -->
-      </div><!-- /.crm-accordion-wrapper -->
+        </div>
+      </details>
 
-      <div id="pdf_format" class="crm-accordion-wrapper crm-html_email-accordion ">
-        <div class="crm-accordion-header">
+      <details id="pdf_format" class="crm-accordion-bold crm-html_email-accordion " open>
+        <summary>
           {$form.pdf_format_id.label}
-        </div><!-- /.crm-accordion-header -->
+        </summary>
         <div class="crm-accordion-body">
           <div class="spacer"></div>
           <div class='html'>
             {$form.pdf_format_id.html}
-            {help id="id-msg-template" file="CRM/Contact/Form/Task/PDFLetterCommon.hlp"}
+            {help id="pdf_format_id" file="CRM/Contact/Form/Task/PDFLetterCommon.hlp"}
             <div class="description">{ts}Page format to use when creating PDF files using this template.{/ts}</div>
           </div>
-        </div><!-- /.crm-accordion-body -->
-      </div><!-- /.crm-accordion-wrapper -->
+        </div>
+      </details>
 
       {if !$isWorkflow}
         <table class="form-layout-compressed">

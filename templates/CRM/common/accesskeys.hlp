@@ -8,29 +8,19 @@
  +--------------------------------------------------------------------+
 *}
 {htxt id="accesskeys"}
-  {php}
-    $ua = strtolower($_SERVER['HTTP_USER_AGENT']);
-    if (strstr($ua, 'mac')) {
-      $key = '<span>CTRL</span>+<span>ALT</span>';
-    }
-    else {
-      $key = strstr($ua, 'firefox') ? '<span>ALT</span>+<span>SHIFT</span>' : '<span>ALT</span>';
-    }
-    $this->assign('accessKey', $key);
-  {/php}
   <p></p>
-  <ul id="crmAccessKeyList">
+  <ul class="crmAccessKeyList">
     <li>{$accessKey}+<span>E</span> - {ts}Edit Contact (View Contact Summary Page){/ts}</li>
     <li>{$accessKey}+<span>S</span> - {ts}Save Button{/ts}</li>
     <li>{$accessKey}+<span>N</span> - {ts}Add a new record in each tab (Activities, Tags,..etc){/ts}</li>
     <li>{$accessKey}+<span>M</span> - {ts}Find menu item...{/ts}</li>
     <li>{$accessKey}+<span>Q</span> - {ts}Quicksearch{/ts}</li>
   </ul>
-  {literal}<style type="text/css">
-    #crmAccessKeyList li {
+  {literal}<style>
+    .crmAccessKeyList li {
       margin-top: 5px;
     }
-    #crmAccessKeyList span {
+    .crmAccessKeyList span {
       display: inline-block;
       background: grey;
       font-size: 80%;

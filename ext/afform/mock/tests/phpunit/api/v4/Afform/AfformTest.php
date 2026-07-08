@@ -3,15 +3,14 @@ namespace api\v4\Afform;
 
 use Civi\Api4\Afform;
 use Civi\Api4\Dashboard;
+use Civi\Test\TransactionalInterface;
 
 /**
  * Afform.Get API Test Case
  * This is a generic test class implemented with PHPUnit.
  * @group headless
  */
-class AfformTest extends AfformTestCase {
-  use \Civi\Test\Api3TestTrait;
-  use \Civi\Test\ContactTestTrait;
+class AfformTest extends AfformTestCase implements TransactionalInterface {
 
   /**
    * DOMDocument outputs some tags a little different than they were input.
@@ -32,13 +31,15 @@ class AfformTest extends AfformTestCase {
     }
   }
 
-  public function getBasicDirectives() {
-    return [
+  public static function getBasicDirectives() {
+    $directives = [
       ['mockPage', ['title' => '', 'description' => '', 'server_route' => 'civicrm/mock-page', 'permission' => ['access Foobar'], 'placement' => ['dashboard_dashlet'], 'submit_enabled' => TRUE]],
       ['mockBareFile', ['title' => '', 'description' => '', 'permission' => ['access CiviCRM'], 'placement' => [], 'submit_enabled' => TRUE]],
       ['mockFoo', ['title' => '', 'description' => '', 'permission' => ['access CiviCRM']], 'submit_enabled' => TRUE],
       ['mock-weird-name', ['title' => 'Weird Name', 'description' => '', 'permission' => ['access CiviCRM']], 'submit_enabled' => TRUE],
     ];
+    // Provide a meaningful index for test data set
+    return array_column($directives, NULL, 0);
   }
 
   /**
@@ -51,7 +52,7 @@ class AfformTest extends AfformTestCase {
    */
   public function testGetUpdateRevert($formName, $originalMetadata): void {
     $get = function($arr, $key) {
-      return isset($arr[$key]) ? $arr[$key] : NULL;
+      return $arr[$key] ?? NULL;
     };
 
     $checkDashlet = function($afform) use ($formName) {
@@ -129,7 +130,7 @@ class AfformTest extends AfformTestCase {
     $checkDashlet($originalMetadata);
   }
 
-  public function getFormatExamples() {
+  public static function getFormatExamples() {
     $ex = [];
     $formats = ['html', 'shallow', 'deep'];
     foreach (glob(__DIR__ . '/../formatExamples/*.php') as $exampleFile) {
@@ -137,7 +138,8 @@ class AfformTest extends AfformTestCase {
       if (isset($example['deep'])) {
         foreach ($formats as $updateFormat) {
           foreach ($formats as $readFormat) {
-            $ex[] = ['mockBareFile', $updateFormat, $example[$updateFormat], $readFormat, $example[$readFormat], $exampleFile];
+            $key = basename($exampleFile, '.php') . '-' . $updateFormat . '-' . $readFormat;
+            $ex[$key] = ['mockBareFile', $updateFormat, $example[$updateFormat], $readFormat, $example[$readFormat], $exampleFile];
           }
         }
       }
@@ -226,12 +228,12 @@ class AfformTest extends AfformTestCase {
     Afform::revert()->addWhere('name', '=', $formName)->execute();
   }
 
-  public function getWhitespaceExamples() {
+  public static function getWhitespaceExamples() {
     $ex = [];
     foreach (glob(__DIR__ . '/../formatExamples/*.php') as $exampleFile) {
       $example = require $exampleFile;
       if (isset($example['pretty'])) {
-        $ex[] = ['mockBareFile', $example, $exampleFile];
+        $ex[basename($exampleFile, '.php')] = ['mockBareFile', $example, $exampleFile];
       }
     }
     return $ex;
@@ -315,6 +317,35 @@ class AfformTest extends AfformTestCase {
     $angModule = \Civi::service('angular')->getModule($formName);
     sort($angModule['requires']);
     $this->assertEquals(['afCore', 'mockBareFile', 'mockBespoke', 'mockFoo'], $angModule['requires']);
+  }
+
+  public function testXssFilteringInConfirmationMessage(): void {
+    $formName = 'mockBareFile';
+
+    // Update form with a confirmation message containing XSS attack vector
+    Afform::update()
+      ->addWhere('name', '=', $formName)
+      ->addValue('confirmation_message', '<p>Thank you!</p><script>alert("XSS")</script>')
+      ->execute();
+
+    // Get the form and verify the script tag is filtered out
+    $result = Afform::get()
+      ->addWhere('name', '=', $formName)
+      ->execute();
+
+    $this->assertStringNotContainsString('<script>', $result[0]['confirmation_message']);
+    $this->assertStringNotContainsString('alert', $result[0]['confirmation_message']);
+    $this->assertStringContainsString('<p>Thank you!</p>', $result[0]['confirmation_message']);
+
+    // Confirmation message not selected so should not be returned.
+    $result = Afform::get()
+      ->addWhere('name', '=', $formName)
+      ->addSelect('name', 'title')
+      ->execute();
+
+    $this->assertArrayNotHasKey('confirmation_message', $result[0]);
+
+    Afform::revert()->addWhere('name', '=', $formName)->execute();
   }
 
 }

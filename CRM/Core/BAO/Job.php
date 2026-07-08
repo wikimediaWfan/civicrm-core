@@ -21,17 +21,12 @@
 class CRM_Core_BAO_Job extends CRM_Core_DAO_Job {
 
   /**
-   * Add the payment-processor type in the db
-   *
-   * @param array $params
-   *   An assoc array of name/value pairs.
-   *
+   * @deprecated
    * @return CRM_Core_DAO_Job
    */
   public static function create($params) {
-    $job = new CRM_Core_DAO_Job();
-    $job->copyValues($params);
-    return $job->save();
+    CRM_Core_Error::deprecatedFunctionWarning('writeRecord');
+    return self::writeRecord($params);
   }
 
   /**
@@ -90,10 +85,12 @@ class CRM_Core_BAO_Job extends CRM_Core_DAO_Job {
     }
 
     $count = $count - (int) $maxEntriesToKeep;
-
     $minDaysToKeep = (int) $minDaysToKeep;
     $query = "DELETE FROM civicrm_job_log WHERE run_time < SUBDATE(NOW(), $minDaysToKeep) ORDER BY id LIMIT $count";
     CRM_Core_DAO::executeQuery($query);
+
+    // Optimize the table to free up disk space (assuming innodb_file_per_table=1)
+    CRM_Core_DAO::executeQuery('OPTIMIZE TABLE civicrm_job_log');
   }
 
   /**
@@ -125,6 +122,15 @@ class CRM_Core_BAO_Job extends CRM_Core_DAO_Job {
    * @throws CRM_Core_Exception
    */
   public static function parseParameters(?string $parameters): array {
+    $parameters = trim($parameters ?? '');
+    if (!empty($parameters) && $parameters[0] === '{') {
+      try {
+        return json_decode($parameters, TRUE, 512, JSON_THROW_ON_ERROR);
+      }
+      catch (JsonException $e) {
+        throw new CRM_Core_Exception('Job parameters error: ' . $e->getMessage() . '. Parameters: ' . print_r($parameters, TRUE));
+      }
+    }
     $result = ['version' => 3];
     $lines = $parameters ? explode("\n", $parameters) : [];
 

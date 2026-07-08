@@ -1,6 +1,11 @@
 <?php
 use CRM_CivicrmAdminUi_ExtensionUtil as E;
 
+// Temporary check can be removed when moving this file to the civi_mail extension.
+if (!CRM_Core_Component::isEnabled('CiviMail')) {
+  return [];
+}
+
 return [
   [
     'name' => 'SavedSearch_Headers_Footers_and_Automated_Messages',
@@ -63,67 +68,56 @@ return [
             [
               'type' => 'field',
               'key' => 'name',
-              'dataType' => 'String',
-              'label' => E::ts('Name'),
+              'label' => 'Name',
               'sortable' => FALSE,
               'editable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'component_type:label',
-              'dataType' => 'String',
-              'label' => E::ts('Type'),
+              'label' => 'Type',
               'sortable' => FALSE,
             ],
             [
               'type' => 'field',
               'key' => 'subject',
-              'dataType' => 'String',
-              'label' => E::ts('Subject'),
+              'label' => 'Subject',
               'sortable' => FALSE,
             ],
             [
               'type' => 'field',
               'key' => 'body_html',
-              'dataType' => 'Text',
-              'label' => E::ts('Body HTML'),
+              'label' => 'Body HTML',
               'sortable' => FALSE,
             ],
             [
               'type' => 'field',
               'key' => 'body_text',
-              'dataType' => 'Text',
-              'label' => E::ts('Body Text'),
+              'label' => 'Body Text',
               'sortable' => FALSE,
-            ],
-            [
-              'type' => 'field',
-              'key' => 'is_default',
-              'dataType' => 'Boolean',
-              'label' => E::ts('Default?'),
-              'sortable' => FALSE,
-              'rewrite' => '[none]',
-              'title' => NULL,
-              'icons' => [
-                [
-                  'icon' => 'fa-check',
-                  'side' => 'left',
-                  'if' => [
-                    'is_default',
-                    '=',
-                    TRUE,
-                  ],
-                ],
-              ],
             ],
             [
               'type' => 'field',
               'key' => 'is_active',
-              'dataType' => 'Boolean',
-              'label' => E::ts('Enabled?'),
+              'label' => 'Enabled',
               'sortable' => FALSE,
               'icons' => [],
               'rewrite' => '',
+            ],
+            [
+              'type' => 'field',
+              'key' => 'is_default',
+              'label' => 'Default',
+              'sortable' => FALSE,
+              'title' => NULL,
+              'rewrite' => '[none]',
+              'icons' => [
+                [
+                  'icon' => 'fa-check',
+                  'side' => 'left',
+                  'if' => ['is_default', '=', TRUE],
+                ],
+              ],
             ],
             [
               'links' => [
@@ -133,7 +127,7 @@ return [
                   'join' => '',
                   'target' => 'crm-popup',
                   'icon' => '',
-                  'text' => E::ts('Edit'),
+                  'text' => 'Edit',
                   'style' => 'default',
                   'path' => '',
                   'task' => '',
@@ -145,15 +139,11 @@ return [
                   'join' => '',
                   'target' => 'crm-popup',
                   'icon' => '',
-                  'text' => E::ts('Disable'),
+                  'text' => 'Disable',
                   'style' => 'default',
                   'path' => '',
                   'action' => '',
-                  'condition' => [
-                    'is_active',
-                    '=',
-                    TRUE,
-                  ],
+                  'condition' => [],
                 ],
                 [
                   'task' => 'enable',
@@ -161,15 +151,11 @@ return [
                   'join' => '',
                   'target' => 'crm-popup',
                   'icon' => '',
-                  'text' => E::ts('Enable'),
+                  'text' => 'Enable',
                   'style' => 'default',
                   'path' => '',
                   'action' => '',
-                  'condition' => [
-                    'is_active',
-                    '=',
-                    FALSE,
-                  ],
+                  'condition' => [],
                 ],
               ],
               'type' => 'links',
@@ -180,12 +166,13 @@ return [
           'classes' => [
             'table-striped',
             'table',
+            'crm-sticky-header',
           ],
           'toolbar' => [
             [
               'action' => 'add',
               'entity' => 'MailingComponent',
-              'text' => E::ts('Add Mailing Component'),
+              'text' => 'Add Mailing Component',
               'icon' => 'fa-plus',
               'style' => 'primary',
               'target' => 'crm-popup',

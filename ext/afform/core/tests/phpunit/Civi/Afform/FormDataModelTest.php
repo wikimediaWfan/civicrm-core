@@ -20,7 +20,7 @@ class FormDataModelTest extends \PHPUnit\Framework\TestCase implements HeadlessI
     return \Civi\Test::headless()->installMe(__DIR__)->apply();
   }
 
-  public function getEntityExamples() {
+  public static function getEntityExamples() {
     $cases = [];
 
     $cases[] = [
@@ -108,6 +108,10 @@ class FormDataModelTest extends \PHPUnit\Framework\TestCase implements HeadlessI
    * @dataProvider getEntityExamples
    */
   public function testGetEntities($html, $expectEntities): void {
+    $expectEntities['extra'] = [
+      'type' => NULL,
+      'fields' => [],
+    ];
     $parser = new \CRM_Afform_ArrayHtml();
     $fdm = new FormDataModel($parser->convertHtmlToArray($html));
     $this->assertEquals($expectEntities, $fdm->getEntities());

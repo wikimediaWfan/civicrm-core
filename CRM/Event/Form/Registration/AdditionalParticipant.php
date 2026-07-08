@@ -94,7 +94,7 @@ class CRM_Event_Form_Registration_AdditionalParticipant extends CRM_Event_Form_R
    */
   public function preProcess() {
     parent::preProcess();
-
+    $this->addExpectedSmartyVariable('additionalCustomPost');
     $participantNo = substr($this->_name, 12);
 
     //lets process in-queue participants.
@@ -104,14 +104,11 @@ class CRM_Event_Form_Registration_AdditionalParticipant extends CRM_Event_Form_R
 
     $participantCnt = $participantNo + 1;
     $this->assign('formId', $participantNo);
-    $this->_params = [];
     $this->_params = $this->get('params');
 
     $participantTot = $this->_params[0]['additional_participants'] + 1;
     $skipCount = count(array_keys($this->_params, "skip"));
-    if ($skipCount) {
-      $this->assign('skipCount', $skipCount);
-    }
+    $this->assign('skipCount', $skipCount);
     $this->setTitle(ts('Register Participant %1 of %2', [1 => $participantCnt, 2 => $participantTot]));
 
     //CRM-4320, hack to check last participant.
@@ -142,12 +139,12 @@ class CRM_Event_Form_Registration_AdditionalParticipant extends CRM_Event_Form_R
       }
     }
     if ($this->_priceSetId) {
-      foreach ($this->_feeBlock as $key => $val) {
+      foreach ($this->getPriceFieldMetaData() as $key => $val) {
         if (empty($val['options'])) {
           continue;
         }
 
-        $optionsFull = CRM_Utils_Array::value('option_full_ids', $val, []);
+        $optionsFull = $this->getOptionFullPriceFieldValues($val);
         foreach ($val['options'] as $keys => $values) {
           if ($values['is_default'] && !in_array($keys, $optionsFull)) {
             if ($val['html_type'] === 'CheckBox') {
@@ -219,8 +216,9 @@ class CRM_Event_Form_Registration_AdditionalParticipant extends CRM_Event_Form_R
     $button = substr($this->controller->getButtonName(), -4);
 
     if ($this->_values['event']['is_monetary']) {
-      CRM_Event_Form_Registration_Register::buildAmount($this, TRUE, NULL, $this->_priceSetId);
+      $this->buildAmount(TRUE, NULL, $this->_priceSetId);
     }
+    $this->assign('priceSet', $this->_priceSet);
 
     //Add pre and post profiles on the form.
     foreach (['pre', 'post'] as $keys) {
@@ -247,7 +245,7 @@ class CRM_Event_Form_Registration_AdditionalParticipant extends CRM_Event_Form_R
 
     if ($this->_lastParticipant || $pricesetFieldsCount) {
       //get the participant total.
-      $processedCnt = self::getParticipantCount($this, $this->_params, TRUE);
+      $processedCnt = $this->getParticipantCount($this->_params, TRUE);
     }
 
     if (!$this->_allowConfirmation && !empty($this->_params[0]['bypass_payment']) &&
@@ -278,9 +276,9 @@ class CRM_Event_Form_Registration_AdditionalParticipant extends CRM_Event_Form_R
         $realPayLater = $this->_params[0]['is_pay_later'] ?? NULL;
       }
 
-      //truly spaces are greater than required.
-      if (is_numeric($spaces) && $spaces >= ($processedCnt + $currentPageMaxCount)) {
-        if (CRM_Utils_Array::value('amount', $this->_params[0], 0) == 0 || $this->_requireApproval) {
+      //truly spaces are less than required.
+      if (is_numeric($spaces) && $spaces <= ($processedCnt + $currentPageMaxCount)) {
+        if (($this->_params[0]['amount'] ?? 0) == 0 || $this->_requireApproval) {
           $this->_allowWaitlist = FALSE;
           $this->set('allowWaitlist', $this->_allowWaitlist);
           if ($this->_requireApproval) {
@@ -306,7 +304,7 @@ class CRM_Event_Form_Registration_AdditionalParticipant extends CRM_Event_Form_R
         CRM_Core_Session::setStatus($statusMessage, ts('Registration Error'), 'error');
       }
       elseif ($processedCnt == $spaces) {
-        if (CRM_Utils_Array::value('amount', $this->_params[0], 0) == 0
+        if (($this->_params[0]['amount'] ?? 0) == 0
           || $realPayLater || $this->_requireApproval
         ) {
           $this->_resetAllowWaitlist = TRUE;
@@ -325,8 +323,10 @@ class CRM_Event_Form_Registration_AdditionalParticipant extends CRM_Event_Form_R
       }
     }
 
+    // Assign false & maybe overwrite with TRUE below.
+    $this->assign('allowGroupOnWaitlist', FALSE);
     // for priceset with count
-    if ($pricesetFieldsCount && !empty($this->_values['event']['has_waitlist']) &&
+    if ($pricesetFieldsCount && $this->getEventValue('has_waitlist') &&
       !$this->_allowConfirmation
     ) {
 
@@ -356,7 +356,7 @@ class CRM_Event_Form_Registration_AdditionalParticipant extends CRM_Event_Form_R
           !$this->_allowWaitlist &&
           !$realPayLater &&
           !$this->_requireApproval &&
-          !(CRM_Utils_Array::value('amount', $this->_params[0], 0) == 0)
+          !(($this->_params[0]['amount'] ?? 0) == 0)
         ) {
           $paymentBypassed = ts('Please go back to the main registration page, to complete payment information.');
         }
@@ -481,8 +481,8 @@ class CRM_Event_Form_Registration_AdditionalParticipant extends CRM_Event_Form_R
             }
             else {
               // check with first_name and last_name for additional participants
-              if (!empty($value['first_name']) && ($value['first_name'] == CRM_Utils_Array::value('first_name', $fields)) &&
-                (($value['last_name'] ?? NULL) == CRM_Utils_Array::value('last_name', $fields))
+              if (!empty($value['first_name']) && ($value['first_name'] == ($fields['first_name'] ?? NULL)) &&
+                (($value['last_name'] ?? NULL) == ($fields['last_name'] ?? NULL))
               ) {
                 $errors['first_name'] = ts('The first name and last name must be unique for each participant.');
                 break;
@@ -498,11 +498,11 @@ class CRM_Event_Form_Registration_AdditionalParticipant extends CRM_Event_Form_R
 
         //format current participant params.
         $allParticipantParams[$addParticipantNum] = self::formatPriceSetParams($self, $fields);
-        $totalParticipants = self::getParticipantCount($self, $allParticipantParams);
+        $totalParticipants = $self->getParticipantCount($allParticipantParams);
 
         //validate price field params.
-        $priceSetErrors = self::validatePriceSet($self, $allParticipantParams);
-        $errors = array_merge($errors, CRM_Utils_Array::value($addParticipantNum, $priceSetErrors, []));
+        $priceSetErrors = $self->validatePriceSet($allParticipantParams, $self->get('priceSetId'), $self->get('priceSet'));
+        $errors = array_merge($errors, $priceSetErrors[$addParticipantNum] ?? []);
 
         if (!$self->_allowConfirmation &&
           is_numeric($self->_availableRegistrations)
@@ -511,7 +511,7 @@ class CRM_Event_Form_Registration_AdditionalParticipant extends CRM_Event_Form_R
             !$self->_allowWaitlist &&
             !$realPayLater &&
             !$self->_requireApproval &&
-            !(CRM_Utils_Array::value('amount', $self->_params[0], 0) == 0) &&
+            !(($self->_params[0]['amount'] ?? 0) == 0) &&
             $totalParticipants < $self->_availableRegistrations
           ) {
             $errors['_qf_default'] = ts("Your event registration will be confirmed. Please go back to the main registration page, to complete payment information.");
@@ -539,7 +539,7 @@ class CRM_Event_Form_Registration_AdditionalParticipant extends CRM_Event_Form_R
         !$self->_allowWaitlist &&
         !$realPayLater &&
         !$self->_requireApproval &&
-        !(CRM_Utils_Array::value('amount', $self->_params[0], 0) == 0)
+        !(($self->_params[0]['amount'] ?? 0) == 0)
       ) {
         $errors['_qf_default'] = ts("You are going to skip the last participant, your event registration will be confirmed. Please go back to the main registration page, to complete payment information.");
       }
@@ -571,7 +571,7 @@ class CRM_Event_Form_Registration_AdditionalParticipant extends CRM_Event_Form_R
     if (!empty($self->_params[0]['bypass_payment']) ||
       $self->_allowWaitlist ||
       empty($self->_fields) ||
-      CRM_Utils_Array::value('amount', $self->_params[0]) > 0
+      ($self->_params[0]['amount'] ?? 0) > 0
     ) {
       return TRUE;
     }
@@ -586,7 +586,7 @@ class CRM_Event_Form_Registration_AdditionalParticipant extends CRM_Event_Form_R
       }
     }
     elseif (!empty($fields['amount']) &&
-      (CRM_Utils_Array::value('value', $self->_values['fee'][$fields['amount']]) > 0)
+      (($self->_values['fee'][$fields['amount']]['value'] ?? 0) > 0)
     ) {
       $validatePayement = TRUE;
     }
@@ -658,13 +658,13 @@ class CRM_Event_Form_Registration_AdditionalParticipant extends CRM_Event_Form_R
     ) {
       $this->_allowWaitlist = FALSE;
       //get the current page count.
-      $currentCount = self::getParticipantCount($this, $params);
-      if ($button == 'skip') {
+      $currentCount = $this->getParticipantCount($params);
+      if ($button === 'skip') {
         $currentCount = 'skip';
       }
 
       //get the total count.
-      $previousCount = self::getParticipantCount($this, $this->_params, TRUE);
+      $previousCount = $this->getParticipantCount($this->_params, TRUE);
       $totalParticipants = $previousCount;
       if (is_numeric($currentCount)) {
         $totalParticipants += $currentCount;

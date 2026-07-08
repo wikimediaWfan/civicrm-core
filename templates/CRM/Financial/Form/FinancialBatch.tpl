@@ -43,25 +43,25 @@
       </tr>
     {/if}
   </table>
-  <fieldset class="crm-collapsible">
-    <legend class="collapsible-title">{ts}Optional Constraints{/ts}</legend>
-      <div>
+  <details class="crm-accordion-light">
+    <summary>{ts}Optional Constraints{/ts}</summary>
+    <div class="crm-accordion-body">
       <table class="form-layout">
         <tr class="crm-contribution-form-block-payment_instrument">
-          <td class="label">{$form.payment_instrument_id.label}</td>
-          <td class="html-adjust">{$form.payment_instrument_id.html} {help id="payment_instrument"}</td>
+          <td class="label">{$form.payment_instrument_id.label} {help id="payment_instrument_id"}</td>
+          <td class="html-adjust">{$form.payment_instrument_id.html}</td>
         </tr>
         <tr class="crm-contribution-form-block-item_count">
-          <td class="label">{$form.item_count.label}</td>
-          <td class="html-adjust">{$form.item_count.html|crmAddClass:number} {help id="item_count"}</td>
+          <td class="label">{$form.item_count.label} {help id="item_count"}</td>
+          <td class="html-adjust">{$form.item_count.html|crmAddClass:number}</td>
         </tr>
         <tr class="crm-contribution-form-block-total">
-          <td class="label">{$form.total.label}</td>
-          <td class="html-adjust">{$form.total.html|crmAddClass:number} {help id="total"}</td>
+          <td class="label">{$form.total.label} {help id="total"}</td>
+          <td class="html-adjust">{$form.total.html|crmAddClass:number}</td>
         </tr>
       </table>
     </div>
-  </fieldset>
+  </details>
 {/if}
   <div class="crm-submit-buttons">{include file="CRM/common/formButtons.tpl" location="botttom"}</div>
 </div>

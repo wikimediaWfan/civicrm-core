@@ -8,8 +8,8 @@
  +--------------------------------------------------------------------+
 *}
 
-<div id="pricesetTotal" class="crm-section section-pricesetTotal">
-  <div id="pricelabel" class="label {if $hideTotal}hiddenElement{/if}">
+<div id="pricesetTotal" class="crm-section section-pricesetTotal{if $hideTotal} hiddenElement{/if}">
+  <div id="pricelabel" class="label">
     {if ($extends eq 'Contribution') || ($extends eq 'Membership')}
       <span id='amount_sum_label'>{ts}Total Amount{/ts}</span>
     {else}
@@ -20,7 +20,7 @@
       {/if}
     {/if}
   </div>
-  <div class="content calc-value" {if $hideTotal}style="display:none;"{/if} id="pricevalue"></div>
+  <div class="content calc-value" id="pricevalue"></div>
 </div>
 
 <script type="text/javascript">
@@ -133,7 +133,7 @@ function calculateSelectLineItemValue(priceElement) {
 function calculateText(priceElement) {
   //CRM-16034 - comma acts as decimal in price set text pricing
   //CRM-19937 - dollar sign easy mistake to make by users.
-  var textval = parseFloat(cj(priceElement).val().replace(thousandMarker, '').replace(symbol, ''));
+  var textval = parseFloat(cj(priceElement).val().replace(thousandMarker, '').replace(symbol, '').replace(separator, '.'));
 
   if (isNaN(textval)) {
     textval = parseFloat(0);

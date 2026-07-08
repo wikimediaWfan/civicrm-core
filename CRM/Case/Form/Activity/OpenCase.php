@@ -31,8 +31,8 @@ class CRM_Case_Form_Activity_OpenCase {
    *
    * @throws \CRM_Core_Exception
    */
-  public static function preProcess(&$form) {
-    if ($form->_context == 'caseActivity') {
+  public static function preProcess(&$form): void {
+    if ($form->_context === 'caseActivity') {
       $contactID = CRM_Utils_Request::retrieve('cid', 'Positive', $form);
       $atype = CRM_Core_PseudoConstant::getKey('CRM_Activity_BAO_Activity', 'activity_type_id', 'Change Case Start Date');
       $caseId = CRM_Utils_Array::first($form->_caseId);
@@ -50,12 +50,12 @@ class CRM_Case_Form_Activity_OpenCase {
     // check if the case type id passed in url is a valid one
     $caseTypeId = CRM_Utils_Request::retrieve('ctype', 'Positive', $form);
     $caseTypes = CRM_Case_BAO_Case::buildOptions('case_type_id', 'create');
-    $form->_caseTypeId = array_key_exists($caseTypeId, $caseTypes) ? $caseTypeId : NULL;
+    $form->_caseTypeId = array_key_exists($caseTypeId ?? '', $caseTypes) ? $caseTypeId : NULL;
 
     // check if the case status id passed in url is a valid one
     $caseStatusId = CRM_Utils_Request::retrieve('case_status_id', 'Positive', $form);
     $caseStatus = CRM_Case_PseudoConstant::caseStatus();
-    $form->_caseStatusId = array_key_exists($caseStatusId, $caseStatus) ? $caseStatusId : NULL;
+    $form->_caseStatusId = array_key_exists($caseStatusId ?? '', $caseStatus) ? $caseStatusId : NULL;
 
     // Add attachments
     CRM_Core_BAO_File::buildAttachment($form, 'civicrm_activity', $form->_activityId);
@@ -74,7 +74,7 @@ class CRM_Case_Form_Activity_OpenCase {
    */
   public static function setDefaultValues(&$form) {
     $defaults = [];
-    if ($form->_context == 'caseActivity') {
+    if ($form->_context === 'caseActivity') {
       return $defaults;
     }
 
@@ -120,6 +120,28 @@ class CRM_Case_Form_Activity_OpenCase {
     $phoneType = CRM_Core_OptionGroup::values('phone_type', FALSE, FALSE, FALSE, 'AND is_default = 1');
     if (count($phoneType) == 1) {
       $defaults['location[1][phone][1][phone_type_id]'] = key($phoneType);
+    }
+
+    // Set default activity subject based on timeline.
+    $caseTypeId = $defaults['case_type_id'] ?? NULL;
+    if ($caseTypeId) {
+      $caseType = \Civi\Api4\CaseType::get(FALSE)
+        ->addSelect('definition')
+        ->addWhere('id', '=', $caseTypeId)
+        ->execute()
+        ->first();
+      if ($caseType && isset($caseType['definition']['activitySets'])) {
+        foreach ($caseType['definition']['activitySets'] as $activitySet) {
+          if (!empty($activitySet['timeline']) && isset($activitySet['activityTypes'])) {
+            foreach ($activitySet['activityTypes'] as $activityType) {
+              if (($activityType['name'] ?? '') === 'Open Case' && !empty($activityType['default_subject'])) {
+                $defaults['activity_subject'] = $activityType['default_subject'];
+                break 2;
+              }
+            }
+          }
+        }
+      }
     }
 
     return $defaults;
@@ -249,8 +271,8 @@ class CRM_Case_Form_Activity_OpenCase {
    *
    * @throws \Exception
    */
-  public static function endPostProcess(&$form, &$params) {
-    if ($form->_context == 'caseActivity') {
+  public static function endPostProcess($form, &$params): void {
+    if ($form->_context === 'caseActivity') {
       return;
     }
 
@@ -267,7 +289,8 @@ class CRM_Case_Form_Activity_OpenCase {
 
     // 1. create case-contact
     if ($isMultiClient && $form->_context == 'standalone') {
-      foreach ($params['client_id'] as $cliId) {
+      $clientIds = $params['client_id'];
+      foreach ($clientIds as $cliId) {
         if (empty($cliId)) {
           CRM_Core_Error::statusBounce(ts('client_id cannot be empty for OpenCase - end post processing'));
         }
@@ -279,9 +302,10 @@ class CRM_Case_Form_Activity_OpenCase {
       }
     }
     else {
+      $clientIds = $form->_currentlyViewedContactId;
       $contactParams = [
         'case_id' => $params['case_id'],
-        'contact_id' => $form->_currentlyViewedContactId,
+        'contact_id' => $clientIds,
       ];
       CRM_Case_BAO_CaseContact::writeRecord($contactParams);
     }
@@ -290,7 +314,7 @@ class CRM_Case_Form_Activity_OpenCase {
     $xmlProcessor = new CRM_Case_XMLProcessor_Process();
 
     $xmlProcessorParams = [
-      'clientID' => $form->_currentlyViewedContactId,
+      'clientID' => $clientIds,
       'creatorID' => $form->_currentUserId,
       'standardTimeline' => 1,
       'activityTypeName' => 'Open Case',

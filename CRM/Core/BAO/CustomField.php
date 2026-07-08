@@ -15,20 +15,12 @@
  * @copyright CiviCRM LLC https://civicrm.org/licensing
  */
 
-use Civi\Api4\CustomField;
 use Civi\Api4\Utils\CoreUtil;
 
 /**
- * Business objects for managing custom data fields.
+ * Class CRM_Core_BAO_CustomField
  */
-class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
-
-  /**
-   * Array to hold (formatted) fields for import
-   *
-   * @var array
-   */
-  public static $_importFields = NULL;
+class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField implements \Civi\Core\HookInterface {
 
   /**
    * Build and retrieve the list of data types and descriptions.
@@ -107,6 +99,35 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
   }
 
   /**
+   * Converts the 'data_type' property to the format used by Api4 and EntityRepository
+   *
+   * @param array $customField
+   * @return string
+   */
+  public static function getDataTypeString(array $customField): string {
+    $map = [
+      'Int' => 'Integer',
+      'Memo' => 'Text',
+      'Boolean' => 'Boolean',
+      'StateProvince' => 'Integer',
+      'Country' => 'Integer',
+      'File' => 'Integer',
+      'Link' => 'String',
+      'ContactReference' => 'Integer',
+      'EntityReference' => 'Integer',
+    ];
+    $dataType = $map[$customField['data_type']] ?? $customField['data_type'];
+    if ($dataType === 'Date' && !empty($customField['time_format'])) {
+      $dataType = 'Timestamp';
+    }
+    if (!empty($customField['fk_entity'])) {
+      $dataType = CRM_Core_BAO_CustomValueTable::getDataTypeForPrimaryKey($customField['fk_entity']);
+    }
+
+    return $dataType;
+  }
+
+  /**
    * Build the map of custom field's data types and there respective Util type
    *
    * @return array
@@ -152,9 +173,10 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
       CRM_Core_DAO::singleValueQuery(self::getAlterSerializeSQL($customField));
     }
 
-    CRM_Utils_Hook::post(($op === 'add' ? 'create' : 'edit'), 'CustomField', $customField->id, $customField);
+    CRM_Utils_Hook::post(($op === 'add' ? 'create' : 'edit'), 'CustomField', $customField->id, $customField, $params);
 
-    CRM_Utils_System::flushCache();
+    Civi::rebuild(['system' => TRUE])->execute();
+
     CRM_Utils_API_HTMLInputCoder::singleton()->flushCache();
     // Flush caches is not aggressive about clearing the specific cache we know we want to clear
     // so do it manually. Ideally we wouldn't need to clear others...
@@ -232,7 +254,7 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
       CRM_Core_DAO::executeQuery($query);
     }
 
-    CRM_Utils_System::flushCache();
+    Civi::rebuild(['system' => TRUE])->execute();
     CRM_Utils_API_HTMLInputCoder::singleton()->flushCache();
     Civi::cache('metadata')->clear();
 
@@ -240,9 +262,9 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
       $op = empty($records[$index]['id']) ? 'create' : 'edit';
       // Theoretically a custom field could have custom fields! Trippy...
       if (!empty($records[$index]['custom']) && is_array($records[$index]['custom'])) {
-        CRM_Core_BAO_CustomValueTable::store($records[$index]['custom'], static::$_tableName, $customField->id, $op);
+        CRM_Core_BAO_CustomValueTable::store($records[$index]['custom'], static::getTableName(), $customField->id, $op);
       }
-      CRM_Utils_Hook::post($op, 'CustomField', $customField->id, $customField);
+      CRM_Utils_Hook::post($op, 'CustomField', $customField->id, $customField, $records[$index]);
     }
     return $customFields;
   }
@@ -265,7 +287,7 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
    */
   public static function setIsActive($id, $is_active) {
     CRM_Core_Error::deprecatedFunctionWarning('writeRecord');
-    CRM_Utils_System::flushCache();
+    Civi::rebuild(['system' => TRUE])->execute();
 
     //enable-disable CustomField
     CRM_Core_BAO_UFField::setUFField($id, $is_active);
@@ -306,26 +328,13 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
   }
 
   /**
-   * @inheritDoc
-   */
-  public static function buildOptions($fieldName, $context = NULL, $props = []) {
-    $options = parent::buildOptions($fieldName, $context, $props);
-    // This provides legacy support for APIv3, allowing no-longer-existent html types
-    if ($fieldName == 'html_type' && isset($props['version']) && $props['version'] == 3) {
-      $options['Multi-Select'] = 'Multi-Select';
-      $options['Select Country'] = 'Select Country';
-      $options['Multi-Select Country'] = 'Multi-Select Country';
-      $options['Select State/Province'] = 'Select State/Province';
-      $options['Multi-Select State/Province'] = 'Multi-Select State/Province';
-    }
-    return $options;
-  }
-
-  /**
-   * Store and return an array of all active custom fields.
+   * Crufty function makes getting custom fields unnecessarily difficult.
+   * @deprecated since 5.71
+   * @see CRM_Core_BAO_CustomGroup::getAll
+   * for a better alternative.
    *
    * @param string $customDataType
-   *   Type of Custom Data; 'ANY' is a synonym for "all contact data types".
+   *   Type of Custom Data; 'ANY' is a synonym for "all entity types".
    * @param bool $showAll
    *   If true returns all fields (includes disabled fields).
    * @param bool $inline
@@ -360,7 +369,7 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
       $checkPermission = CRM_Core_Permission::EDIT;
     }
     if (empty($customDataType)) {
-      $customDataType = array_merge(['Contact'], CRM_Contact_BAO_ContactType::basicTypes());
+      $customDataType = CRM_Contact_BAO_ContactType::basicTypes();
     }
     if ($customDataType === 'ANY') {
       // NULL should have been respected but the line above broke that.
@@ -368,7 +377,6 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
       $customDataType = NULL;
     }
     if ($customDataType && !is_array($customDataType)) {
-
       if (in_array($customDataType, CRM_Contact_BAO_ContactType::subTypes(), TRUE)) {
         // This is the case when getFieldsForImport() requires fields
         // limited strictly to a subtype.
@@ -376,290 +384,91 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
         $customDataType = CRM_Contact_BAO_ContactType::getBasicType($customDataType);
         $onlySubType = TRUE;
       }
+      $customDataType = (array) $customDataType;
+    }
 
-      if (array_key_exists($customDataType, CRM_Core_SelectValues::customGroupExtends())) {
-        // this makes the method flexible to support retrieving fields
-        // for multiple extends value.
-        $customDataType = [$customDataType];
+    $filters = [];
+
+    if ($customDataType) {
+      // Contact type should also include "Contact"
+      if (array_intersect($customDataType, CRM_Contact_BAO_ContactType::basicTypes(TRUE))) {
+        $customDataType[] = 'Contact';
+      }
+      $filters['extends'] = $customDataType;
+    }
+    if (!$showAll) {
+      $filters['is_active'] = TRUE;
+    }
+    if ($onlyParent) {
+      $filters['extends_entity_column_value'] = NULL;
+      $filters['extends_entity_column_id'] = NULL;
+    }
+    if ($customDataSubName) {
+      $filters['extends_entity_column_id'] = $customDataSubName;
+    }
+    if ($inline) {
+      $filters['style'] = 'Inline';
+    }
+    if (!empty($customDataSubType)) {
+      $filters['extends_entity_column_value'] = CRM_Utils_Array::explodePadded($customDataSubType);
+      if (!$onlySubType) {
+        $filters['extends_entity_column_value'][] = NULL;
       }
     }
-
-    $customDataSubType = CRM_Utils_Array::explodePadded($customDataSubType);
-
-    if (is_array($customDataType)) {
-      $cacheKey = implode('_', $customDataType);
-    }
-    else {
-      $cacheKey = $customDataType;
-    }
-
-    $cacheKey .= !empty($customDataSubType) ? ('_' . implode('_', $customDataSubType)) : '_0';
-    $cacheKey .= $customDataSubName ? "{$customDataSubName}_" : '_0';
-    $cacheKey .= $showAll ? '_1' : '_0';
-    $cacheKey .= $inline ? '_1_' : '_0_';
-    $cacheKey .= $onlyParent ? '_1_' : '_0_';
-    $cacheKey .= $onlySubType ? '_1_' : '_0_';
-    $cacheKey .= $checkPermission ? $checkPermission . CRM_Core_Session::getLoggedInContactID() . '_' : '_0_0_';
-    $cacheKey .= '_' . CRM_Core_Config::domainID() . '_';
-
-    $cgTable = CRM_Core_DAO_CustomGroup::getTableName();
-
-    // also get the permission stuff here
-    if ($checkPermission) {
-      $permissionClause = CRM_Core_Permission::customGroupClause($checkPermission,
-        "{$cgTable}."
-      );
-    }
-    else {
-      $permissionClause = '(1)';
-    }
-
-    // lets md5 permission clause and take first 8 characters
-    $cacheKey .= substr(md5($permissionClause), 0, 8);
-
-    if (strlen($cacheKey) > 40) {
-      $cacheKey = md5($cacheKey);
-    }
-
-    if (!isset(self::$_importFields[$cacheKey])) {
-      if (!self::$_importFields) {
-        self::$_importFields = [];
-      }
-
-      // check if we can retrieve from database cache
-      $fields = Civi::Cache('fields')->get("custom importableFields $cacheKey");
-
-      if ($fields === NULL) {
-
-        $extends = '';
-        if (is_array($customDataType)) {
-          $value = NULL;
-          foreach ($customDataType as $dataType) {
-            if (array_key_exists($dataType, CRM_Core_SelectValues::customGroupExtends())) {
-              if (in_array($dataType, CRM_Contact_BAO_ContactType::basicTypes(TRUE), TRUE)) {
-                $val = "'" . CRM_Utils_Type::escape($dataType, 'String') . "', 'Contact' ";
-              }
-              else {
-                $val = "'" . CRM_Utils_Type::escape($dataType, 'String') . "'";
-              }
-              $value = $value ? $value . ", {$val}" : $val;
-            }
-          }
-          if ($value) {
-            $extends = "AND   $cgTable.extends IN ( $value ) ";
-          }
-        }
-
-        if (!empty($customDataType) && empty($extends)) {
-          // $customDataType specified a filter, but there is no corresponding SQL ($extends)
-          self::$_importFields[$cacheKey] = [];
-          return self::$_importFields[$cacheKey];
-        }
-
-        if ($onlyParent) {
-          $extends .= " AND $cgTable.extends_entity_column_value IS NULL AND $cgTable.extends_entity_column_id IS NULL ";
-        }
-        // Temporary hack - in 5.27 a new field is added to civicrm_custom_field. There is a high
-        // risk this function is called before the upgrade page can be reached and if
-        // so it will potentially result in fatal error.
-        $serializeField = CRM_Core_BAO_Domain::isDBVersionAtLeast('5.27.alpha1') ? "custom_field.serialize," : '';
-
-        $query = "SELECT custom_field.id, custom_field.label,
-                            $cgTable.title,
-                            custom_field.data_type,
-                            custom_field.html_type,
-                            custom_field.default_value,
-                            custom_field.options_per_line, custom_field.text_length,
-                            custom_field.custom_group_id,
-                            custom_field.is_required,
-                            custom_field.column_name,
-                            $cgTable.extends, custom_field.is_search_range,
-                            $cgTable.extends_entity_column_value,
-                            $cgTable.extends_entity_column_id,
-                            custom_field.is_view,
-                            custom_field.option_group_id,
-                            custom_field.date_format,
-                            custom_field.time_format,
-                            $cgTable.is_multiple,
-                            $serializeField
-                            $cgTable.table_name,
-                            og.name as option_group_name
-                     FROM civicrm_custom_field custom_field
-                     INNER JOIN $cgTable
-                       ON custom_field.custom_group_id = $cgTable.id
-                     LEFT JOIN civicrm_option_group og
-                       ON custom_field.option_group_id = og.id
-                     WHERE ( 1 ) ";
-
-        if (!$showAll) {
-          $query .= " AND custom_field.is_active = 1 AND $cgTable.is_active = 1 ";
-        }
-
-        if ($inline) {
-          $query .= " AND $cgTable.style = 'Inline' ";
-        }
-
-        //get the custom fields for specific type in
-        //combination with fields those support any type.
-        if (!empty($customDataSubType)) {
-          $subtypeClause = [];
-          foreach ($customDataSubType as $subtype) {
-            $subtype = CRM_Core_DAO::VALUE_SEPARATOR . CRM_Utils_Type::escape($subtype, 'String') . CRM_Core_DAO::VALUE_SEPARATOR;
-            $subtypeClause[] = "$cgTable.extends_entity_column_value LIKE '%{$subtype}%'";
-          }
-          if (!$onlySubType) {
-            $subtypeClause[] = "$cgTable.extends_entity_column_value IS NULL";
-          }
-          $query .= " AND ( " . implode(' OR ', $subtypeClause) . " )";
-        }
-
-        if ($customDataSubName) {
-          $query .= " AND ( $cgTable.extends_entity_column_id = $customDataSubName ) ";
-        }
-
-        // also get the permission stuff here
-        if ($checkPermission) {
-          $permissionClause = CRM_Core_Permission::customGroupClause($checkPermission,
-            "{$cgTable}.", TRUE
-          );
-        }
-        else {
-          $permissionClause = '(1)';
-        }
-
-        $query .= " $extends AND $permissionClause
-                        ORDER BY $cgTable.weight, $cgTable.title,
-                                 custom_field.weight, custom_field.label";
-
-        $dao = CRM_Core_DAO::executeQuery($query);
-
-        $fields = [];
-        while (($dao->fetch()) != NULL) {
-          $regexp = preg_replace('/[.,;:!?]/', '', '');
-          $fields[$dao->id]['id'] = $dao->id;
-          $fields[$dao->id]['label'] = $dao->label;
-          // This seems broken, but not in a new way.
-          $fields[$dao->id]['headerPattern'] = '/' . preg_quote($regexp, '/') . '/';
-          // To support the consolidation of various functions & their expectations.
-          $fields[$dao->id]['title'] = $dao->label;
-          $fields[$dao->id]['custom_field_id']  = $dao->id;
-          $fields[$dao->id]['groupTitle'] = $dao->title;
-          $fields[$dao->id]['data_type'] = $dao->data_type;
-          $fields[$dao->id]['name'] = 'custom_' . $dao->id;
-          $fields[$dao->id]['type'] = self::dataToType()[$dao->data_type] ?? NULL;
-          $fields[$dao->id]['html_type'] = $dao->html_type;
-          $fields[$dao->id]['default_value'] = $dao->default_value;
-          $fields[$dao->id]['text_length'] = $dao->text_length;
-          $fields[$dao->id]['options_per_line'] = $dao->options_per_line;
-          $fields[$dao->id]['custom_group_id'] = $dao->custom_group_id;
-          $fields[$dao->id]['extends'] = $dao->extends;
-          $fields[$dao->id]['is_search_range'] = $dao->is_search_range;
-          $fields[$dao->id]['extends_entity_column_value'] = $dao->extends_entity_column_value;
-          $fields[$dao->id]['extends_entity_column_id'] = $dao->extends_entity_column_id;
-          $fields[$dao->id]['is_view'] = $dao->is_view;
-          $fields[$dao->id]['is_multiple'] = $dao->is_multiple;
-          $fields[$dao->id]['option_group_id'] = $dao->option_group_id;
-          $fields[$dao->id]['date_format'] = $dao->date_format;
-          $fields[$dao->id]['time_format'] = $dao->time_format;
-          $fields[$dao->id]['is_required'] = $dao->is_required;
-          $fields[$dao->id]['table_name'] = $dao->table_name;
-          $fields[$dao->id]['column_name'] = $dao->column_name;
-          $fields[$dao->id]['serialize'] = $serializeField ? $dao->serialize : (int) self::isSerialized($dao);
-          $fields[$dao->id]['where'] = $dao->table_name . '.' . $dao->column_name;
-          // Probably we should use a different fn to get the extends tables but this is a refactor so not changing that now.
-          $fields[$dao->id]['extends_table'] = array_key_exists($dao->extends, CRM_Core_BAO_CustomQuery::$extendsMap) ? CRM_Core_BAO_CustomQuery::$extendsMap[$dao->extends] : '';
-          if (in_array($dao->extends, CRM_Contact_BAO_ContactType::subTypes())) {
-            // if $extends is a subtype, refer contact table
-            $fields[$dao->id]['extends_table'] = 'civicrm_contact';
-          }
-          // Search table is used by query object searches..
-          $fields[$dao->id]['search_table'] = ($fields[$dao->id]['extends_table'] == 'civicrm_contact') ? 'contact_a' : $fields[$dao->id]['extends_table'];
-          self::getOptionsForField($fields[$dao->id], $dao->option_group_name);
-        }
-
-        Civi::cache('fields')->set("custom importableFields $cacheKey", $fields);
-      }
-      self::$_importFields[$cacheKey] = $fields;
-    }
-
-    return self::$_importFields[$cacheKey];
-  }
-
-  /**
-   * Get all active custom fields (cached wrapper).
-   *
-   * @param false|int $permissionType
-   *   - Either FALSE (do not check) or CRM_Core_Permission::VIEW or CRM_Core_Permission::EDIT
-   *
-   * @return array
-   *   List of customField details keyed by customFieldID
-   * @throws \CRM_Core_Exception
-   */
-  public static function getAllCustomFields($permissionType): array {
-    if ($permissionType !== FALSE && !is_int($permissionType)) {
-      throw new CRM_Core_Exception('permissionCheck must be FALSE or CRM_Core_Permission::VIEW or CRM_Core_Permission::EDIT');
-    }
-    $cacheString = __CLASS__ . __FUNCTION__ . CRM_Core_Config::domainID() . '_' . CRM_Core_I18n::getLocale();
-    if ($permissionType) {
-      $cacheString .= 'check_' . $permissionType . '_user_' . CRM_Core_Session::getLoggedInContactID();
-    }
-    if (!Civi::cache('metadata')->has($cacheString)) {
-      $apiCall = CustomField::get(FALSE)
-        ->addOrderBy('custom_group_id.title')
-        ->addOrderBy('custom_group_id.weight')
-        ->addOrderBy('weight')
-        ->addOrderBy('label')
-        ->addSelect('*')
-        ->addSelect('custom_group_id.extends')
-        ->addSelect('custom_group_id.extends_entity_column_id')
-        ->addSelect('custom_group_id.extends_entity_column_value')
-        ->addSelect('custom_group_id.is_active')
-        ->addSelect('custom_group_id.name')
-        ->addSelect('custom_group_id.title')
-        ->addSelect('custom_group_id.table_name')
-        ->addSelect('custom_group_id.is_public');
-      if ($permissionType && !CRM_Core_Permission::customGroupAdmin()) {
-        $availableGroups = CRM_Core_Permission::customGroup($permissionType);
-        $apiCall->addWhere('custom_group_id', 'IN', empty($availableGroups) ? [0] : $availableGroups);
-      }
-
-      $types = (array) $apiCall->execute()->indexBy('id');
-
-      Civi::cache('metadata')->set($cacheString, $types);
-    }
-    return Civi::cache('metadata')->get($cacheString);
-  }
-
-  /**
-   * Get all active custom fields for the given contact type.
-   *
-   * This is formatted as an apiv4 Style array.
-   *
-   * @param string $contactType
-   * @param bool|int $permissionType
-   *  - Either FALSE (do not check) or CRM_Core_Permission::VIEW or CRM_Core_Permission::EDIT
-   * @param array $contactSubTypes
-   *
-   * @return array $fields
-   *
-   * @throws \CRM_Core_Exception
-   */
-  public static function getCustomFieldsForContactType(string $contactType, $permissionType, array $contactSubTypes = []): array {
+    $customGroups = CRM_Core_BAO_CustomGroup::getAll($filters, $checkPermission ?: NULL);
     $fields = [];
-    foreach (self::getAllCustomFields($permissionType) as $field) {
-      if ($field['custom_group_id.extends'] === $contactType || $field['custom_group_id.extends'] === 'Contact') {
-        if (empty($contactSubTypes) || empty($field['custom_group_id.extends_entity_column_value'])) {
-          $fields[$field['id']] = $field;
+
+    // This function has been refactored to use `CRM_Core_BAO_CustomGroup::getAll` instead
+    // of a database query. They old query results were badly formatted, but since this function is
+    // deprecated, the following loop recreates the bad formatting instead of fixing it, for
+    // maximum backward-compatibility.
+    // (for forward-compatibility... don't use this function)
+    foreach ($customGroups as $customGroup) {
+      $extendsSubtypes = in_array($customGroup['extends'], CRM_Contact_BAO_ContactType::subTypes());
+      foreach ($customGroup['fields'] as $customField) {
+        $id = (string) $customField['id'];
+        $fields[$id]['id'] = $id;
+        $fields[$id]['label'] = $customField['label'];
+        // This seems broken, but not in a new way.
+        $fields[$id]['headerPattern'] = '//';
+        // To support the consolidation of various functions & their expectations.
+        $fields[$id]['title'] = $customField['label'];
+        $fields[$id]['custom_field_id'] = $id;
+        $fields[$id]['groupTitle'] = $customGroup['title'];
+        $fields[$id]['data_type'] = $customField['data_type'];
+        $fields[$id]['name'] = 'custom_' . $id;
+        $fields[$id]['type'] = self::dataToType()[$customField['data_type']] ?? NULL;
+        $fields[$id]['html_type'] = $customField['html_type'];
+        $fields[$id]['default_value'] = $customField['default_value'];
+        $fields[$id]['text_length'] = $customField['text_length'];
+        $fields[$id]['options_per_line'] = $customField['options_per_line'];
+        $fields[$id]['custom_group_id'] = (string) $customGroup['id'];
+        $fields[$id]['extends'] = $customGroup['extends'];
+        $fields[$id]['is_search_range'] = (string) (int) $customField['is_search_range'];
+        $fields[$id]['extends_entity_column_value'] = CRM_Utils_Array::implodePadded($customGroup['extends_entity_column_value']);
+        $fields[$id]['extends_entity_column_id'] = (string) $customGroup['extends_entity_column_id'];
+        $fields[$id]['is_view'] = (string) (int) $customField['is_view'];
+        $fields[$id]['is_multiple'] = (string) (int) $customGroup['is_multiple'];
+        $fields[$id]['option_group_id'] = ((string) $customField['option_group_id']) ?: NULL;
+        $fields[$id]['date_format'] = $customField['date_format'];
+        $fields[$id]['time_format'] = $customField['time_format'];
+        $fields[$id]['is_required'] = (string) (int) $customField['is_required'];
+        $fields[$id]['table_name'] = $customGroup['table_name'];
+        $fields[$id]['column_name'] = $customField['column_name'];
+        $fields[$id]['serialize'] = $customField['serialize'];
+        $fields[$id]['where'] = $customGroup['table_name'] . '.' . $customField['column_name'];
+        // Probably we should use a different fn to get the extends tables but this is a refactor so not changing that now.
+        $fields[$id]['extends_table'] = array_key_exists($customGroup['extends'], CRM_Core_BAO_CustomQuery::$extendsMap) ? CRM_Core_BAO_CustomQuery::$extendsMap[$customGroup['extends']] : '';
+        if ($extendsSubtypes) {
+          // if $extends is a subtype, refer contact table
+          $fields[$id]['extends_table'] = 'civicrm_contact';
         }
-        else {
-          foreach ($contactSubTypes as $contactSubType) {
-            if (in_array($contactSubType, $field['custom_group_id.extends_entity_column_value'], TRUE)) {
-              $fields[$field['id']] = $field;
-            }
-          }
-        }
+        // Search table is used by query object searches..
+        $fields[$id]['search_table'] = ($fields[$id]['extends_table'] == 'civicrm_contact') ? 'contact_a' : $fields[$id]['extends_table'];
+        self::getOptionsForField($fields[$id]);
       }
     }
+
     return $fields;
   }
 
@@ -697,7 +506,7 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
     }
     // Note: there are situations when we want getFieldsForImport() return fields related
     // ONLY to basic contact types, but NOT subtypes. And thats where $onlyParent is helpful
-    $fields = &self::getFields($contactType,
+    $fields = self::getFields($contactType,
       $showAll,
       FALSE,
       NULL,
@@ -743,7 +552,7 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
     $match = [];
     if (preg_match('/^custom_(\d+)_?(-?\d+)?$/', $key, $match)) {
       if (!$all) {
-        return $match[1];
+        return (int) $match[1];
       }
       else {
         return [
@@ -756,119 +565,125 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
   }
 
   /**
-   * Use the cache to get all values of a specific custom field.
+   * Get specific custom field as an object.
+   * @deprecated
+   * @see CRM_Core_BAO_CustomField::getField()
+   * which does the same thing but returns an array instead of an object.
    *
    * @param int $fieldID
    *   The custom field ID.
    *
    * @return CRM_Core_BAO_CustomField
-   *   The field object.
    * @throws CRM_Core_Exception
    */
   public static function getFieldObject($fieldID) {
     $field = new CRM_Core_BAO_CustomField();
-
-    // check if we can get the field values from the system cache
-    $cacheKey = "CRM_Core_DAO_CustomField_{$fieldID}";
-    $cache = CRM_Utils_Cache::singleton();
-    $fieldValues = $cache->get($cacheKey);
-    if (empty($fieldValues)) {
-      $field->id = $fieldID;
-      if (!$field->find(TRUE)) {
-        throw new CRM_Core_Exception('Cannot find Custom Field ' . $fieldID);
-      }
-      $fieldValues = [];
-      CRM_Core_DAO::storeValues($field, $fieldValues);
-
-      $cache->set($cacheKey, $fieldValues);
-    }
-    else {
-      $field->copyValues($fieldValues);
-    }
-
+    $field->copyValues(self::getField($fieldID));
     return $field;
   }
 
   /**
-   * Use the cache to get all values of a specific custom field.
+   * Get all values of a specific custom field + its custom group.
    *
    * @param int $id
    *   The custom field ID.
-   * @param int|false $permissionType
    *
-   * @return array
+   * @return array|null
    *   The field object.
    * @throws CRM_Core_Exception
    */
-  public static function getField(int $id, $permissionType = FALSE): array {
-    $field = self::getAllCustomFields($permissionType)[$id];
-    // @todo - on the fence about caching these in the cache for all custom fields. The down side is the
-    // cache array could get really big & serializing & un-serializing big arrays is expensive.
-    $entity = in_array($field['custom_group_id.extends'], CRM_Contact_BAO_ContactType::basicTypes(TRUE), TRUE) ? 'Contact' : $field['custom_group_id.extends'];
-    $field['options'] = self::getFieldOptions($field['id'], $field['option_group_id'], $field['data_type'], $entity);
-    return $field;
+  public static function getField(int $id): ?array {
+    foreach (CRM_Core_BAO_CustomGroup::getAll() as $customGroup) {
+      if (isset($customGroup['fields'][$id])) {
+        $customGroup['fields'][$id]['custom_group'] = array_diff_key($customGroup, ['fields' => 1]);
+        return $customGroup['fields'][$id];
+      }
+    }
+    return NULL;
   }
 
   /**
-   * Gets an array of custom fields that are public.
+   * Gets custom field + group details, given either the brief identifier or the full api4 name.
    *
-   * @internal do not use from untested or external code - signature may change.
+   * Does NOT fetch by `civicrm_custom_field.name` as that column is not guaranteed to be unique.
    *
-   * This takes into account
-   *  - the is_public setting on the Custom Group
-   *  - the is_view permission on the field (these are generally suppressed).
+   * @param string $name
+   *   Short name (custom_123) or long name (GroupName.FieldName)
    *
-   * @param string $extends
-   * @param array $extendsEntity
-   *   Keyed by name values from CRM_Core_BAO_CustomGroup::getExtendsEntityColumnIdOptions()
-   *   Values can be an int or an array.
-   *   eg ['ParticipantRole' = [1], 'ParticipantEventType' => 2], ['ParticipantEventName' => 3]
-   * @param int $permissionType
-   *
-   * @return array
-   * @throws \CRM_Core_Exception
+   * @see self::getShortNameFromLongName()
+   * @return array|null
+   * @throws CRM_Core_Exception
    */
-  public static function getViewableCustomFields(string $extends, array $extendsEntity = [], $permissionType = CRM_Core_Permission::VIEW): array {
-    $entityFilters = [];
-    // Convert from ['ParticipantRole' = [1], 'ParticipantEventType' => 2], ['ParticipantEventName' => 3]
-    // to [1 => [1], 2 => [2], 3 = [3]
-    if (!empty($extendsEntity)) {
-      $entityColumns = CRM_Core_BAO_CustomGroup::getExtendsEntityColumnIdOptions();
-      foreach ($entityColumns as $entityColumn) {
-        if (isset($extendsEntity[$entityColumn['name']])) {
-          $entityFilters[(int) $entityColumn['id']] = (array) $extendsEntity[$entityColumn['name']];
-          foreach ($entityFilters[$entityColumn['id']] as &$value) {
-            // Cast to string because we don't want the calling function to have to worry
-            // but also the array intersect fails otherwise.
-            $value = (string) $value;
-          }
+  public static function getFieldByName(string $name): ?array {
+    // Get by long name
+    if (substr_count($name, '.') === 1 && !str_starts_with($name, '.') && !str_ends_with($name, '.')) {
+      [$groupName, $fieldName] = explode('.', $name);
+      $customGroup = CRM_Core_BAO_CustomGroup::getGroup(['name' => $groupName]);
+      foreach ($customGroup['fields'] ?? [] as $field) {
+        if ($field['name'] === $fieldName) {
+          $field['custom_group'] = array_diff_key($customGroup, ['fields' => 1]);
+          return $field;
         }
       }
     }
-    $cacheKey = $extends . $permissionType . CRM_Core_Config::domainID() . '_' . CRM_Core_I18n::getLocale() . substr(md5(json_encode($extendsEntity)), 0, 30);
-    if (!isset(\Civi::$statics[__CLASS__][__FUNCTION__][$cacheKey])) {
-      \Civi::$statics[__CLASS__][__FUNCTION__][$cacheKey] = [];
-      $allFields = CRM_Core_BAO_CustomField::getAllCustomFields($permissionType);
-      foreach ($allFields as $field) {
-        $entityValueMatches = array_intersect((array) $field['custom_group_id.extends_entity_column_value'], ($entityFilters[$field['custom_group_id.extends_entity_column_id']] ?? []));
-        if (
-          !$field['is_view']
-          && $field['custom_group_id.is_public']
-          && (
-            !empty($entityValueMatches)
-            || empty($entityFilters)
-            || empty($field['custom_group_id.extends_entity_column_id'])
-          )
-          && (
-            $field['custom_group_id.extends'] === $extends
-            || ($field['custom_group_id.extends'] === 'Contact' && in_array($extends, ['Individual', 'Organization', 'Household']))
-          )
-        ) {
-          \Civi::$statics[__CLASS__][__FUNCTION__][$cacheKey][(int) $field['id']] = $field;
-        }
+    // Get by short name
+    else {
+      $id = self::getKeyID($name);
+      if ($id) {
+        return self::getField($id);
       }
     }
-    return \Civi::$statics[__CLASS__][__FUNCTION__][$cacheKey];
+    return NULL;
+  }
+
+  /**
+   * Converts `custom_123` to `GroupName.FieldName`.
+   *
+   * Does NOT fetch by `civicrm_custom_field.name` as that column is not guaranteed to be unique.
+   *
+   * @param string $shortName
+   *   Field id prefixed with `custom_`, e.g. `custom_123`
+   *
+   * @return string
+   *   Full name of group.field per Api4 naming convention.
+   */
+  public static function getLongNameFromShortName(string $shortName): ?string {
+    [$prefix, $id] = explode('_', $shortName);
+    if ($prefix !== 'custom' || strval(intval($id)) !== $id) {
+      return NULL;
+    }
+    foreach (CRM_Core_BAO_CustomGroup::getAll() as $customGroup) {
+      if (isset($customGroup['fields'][$id])) {
+        return $customGroup['name'] . '.' . $customGroup['fields'][$id]['name'];
+      }
+    }
+    return NULL;
+  }
+
+  /**
+   * Converts `GroupName.FieldName` to `custom_123`.
+   *
+   * Does NOT fetch by `civicrm_custom_field.name` as that column is not guaranteed to be unique.
+   *
+   * @param string $longName
+   *   Full name of group.field per Api4 naming convention.
+   *
+   * @return string
+   *   Field id prefixed with `custom_`, e.g. `custom_123`
+   */
+  public static function getShortNameFromLongName(string $longName): ?string {
+    // Only proceed if this looks like a proper long name
+    if (substr_count($longName, '.') !== 1 || str_starts_with($longName, '.') || str_ends_with($longName, '.')) {
+      return NULL;
+    }
+    [$groupName, $fieldName] = explode('.', $longName);
+    $customGroup = CRM_Core_BAO_CustomGroup::getGroup(['name' => $groupName]);
+    foreach ($customGroup['fields'] ?? [] as $id => $field) {
+      if ($field['name'] === $fieldName) {
+        return "custom_$id";
+      }
+    }
+    return NULL;
   }
 
   /**
@@ -919,6 +734,7 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
       'Select',
       'CheckBox',
       'Radio',
+      'Toggle',
     ])) {
       $options = $field->getOptions($search ? 'search' : 'create');
 
@@ -1013,12 +829,24 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
           $qf->add('text', $elementName . '_to', ts('To'), $fieldAttributes);
         }
         else {
+          $separator = NULL;
           $fieldAttributes = array_merge($fieldAttributes, $customFieldAttributes);
           if ($search || empty($useRequired)) {
             $fieldAttributes['allowClear'] = TRUE;
           }
-          $qf->addRadio($elementName, $label, $options, $fieldAttributes, NULL, $useRequired);
+          if ($field->options_per_line) {
+            $fieldAttributes['options_per_line'] = $field->options_per_line;
+            $separator = '';
+          }
+          $qf->addRadio($elementName, $label, $options, $fieldAttributes, $separator, $useRequired);
         }
+        break;
+
+      case 'Toggle':
+        $fieldAttributes = array_merge($fieldAttributes, $customFieldAttributes);
+        $fieldAttributes['off'] = $options[0];
+        $fieldAttributes['on'] = $options[1];
+        $qf->addToggle($elementName, $label, $fieldAttributes, $useRequired && !$search);
         break;
 
       // For all select elements
@@ -1049,10 +877,18 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
           // TODO: I'm not sure if this is supposed to exclude whatever might be
           // in $field->attributes (available in array format as
           // $fieldAttributes).  Leaving as-is for now.
-          $check[] = &$qf->addElement('advcheckbox', $v, NULL, $l, $customFieldAttributes);
+          if ($field->options_per_line) {
+            $customFieldAttributes['options_per_line'] = $field->options_per_line;
+          }
+          $check[] = &$qf->addElement('advcheckbox_with_div', $v, NULL, $l, $customFieldAttributes);
         }
-
-        $group = $element = $qf->addGroup($check, $elementName, $label);
+        if ($field->options_per_line) {
+          $group = $element = $qf->addElement('group_with_div', $elementName, $label, $check, '', TRUE);
+          $group->setAttribute('options_per_line', $field->options_per_line);
+        }
+        else {
+          $group = $element = $qf->addGroup($check, $elementName, $label);
+        }
         $optionEditKey = 'data-option-edit-path';
         if (isset($customFieldAttributes[$optionEditKey])) {
           $group->setAttribute($optionEditKey, $customFieldAttributes[$optionEditKey]);
@@ -1212,26 +1048,48 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
    * Delete the Custom Field.
    *
    * @param object $field
-   *   The field object.
+   * @deprecated
    */
   public static function deleteField($field) {
-    CRM_Utils_System::flushCache();
+    self::deleteRecord(['id' => $field->id]);
+  }
 
-    // first delete the custom option group and values associated with this field
-    if ($field->option_group_id) {
-      //check if option group is related to any other field, if
-      //not delete the option group and related option values
-      self::checkOptionGroup($field->option_group_id);
+  /**
+   * Callback for hook_civicrm_pre().
+   * @param \Civi\Core\Event\PreEvent $event
+   */
+  public static function on_hook_civicrm_pre(\Civi\Core\Event\PreEvent $event) {
+    // When deleting a custom group, delete all orphaned fields
+    if ($event->entity === 'CustomGroup' && $event->action === 'delete') {
+      $sql = "SELECT id FROM civicrm_custom_field WHERE custom_group_id = %1";
+      $orphanedFields = CRM_Core_DAO::executeQuery($sql, [1 => [$event->id, 'Positive']])
+        ->fetchAll();
+      if ($orphanedFields) {
+        self::deleteRecords($orphanedFields);
+      }
     }
-    // next drop the column from the custom value table
-    self::createField($field, 'delete');
+  }
 
-    $field->delete();
-    CRM_Core_BAO_UFField::delUFField($field->id);
-    CRM_Core_BAO_Mapping::removeFieldFromMapping('custom_' . $field->id);
-    CRM_Utils_Weight::correctDuplicateWeights('CRM_Core_DAO_CustomField');
+  /**
+   * Callback for hook_civicrm_post().
+   * @param \Civi\Core\Event\PostEvent $event
+   */
+  public static function self_hook_civicrm_post(\Civi\Core\Event\PostEvent $event) {
+    if ($event->action === 'delete') {
+      Civi::rebuild(['system' => TRUE])->execute();
 
-    CRM_Utils_Hook::post('delete', 'CustomField', $field->id, $field);
+      // first delete the custom option group and values associated with this field
+      if (!empty($event->object->option_group_id)) {
+        // Check if option group is related to any other field.
+        // If not, delete the option group and related option values.
+        self::checkOptionGroup($event->object->option_group_id, 0);
+      }
+      // next drop the column from the custom value table
+      self::createField($event->object, 'delete');
+
+      CRM_Utils_Weight::correctDuplicateWeights('CRM_Core_DAO_CustomField');
+      Civi::cache('metadata')->clear();
+    }
   }
 
   /**
@@ -1251,6 +1109,7 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
       $fieldID = is_object($fieldID) ? $fieldID->id : (int) str_replace('custom_', '', $fieldID);
     }
     $fieldInfo = self::getField($fieldID);
+    $fieldInfo['options'] = self::getFieldOptions($fieldID, $fieldInfo['option_group_id'], $fieldInfo['data_type'], $fieldInfo['custom_group']['extends']);
     $displayValue = self::formatDisplayValue($value, $fieldInfo, $entityID);
     // Call hook to alter display value.
     CRM_Utils_Hook::alterCustomFieldDisplayValue($displayValue, $value, $entityID, $fieldInfo);
@@ -1270,8 +1129,14 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
    */
   private static function formatDisplayValue($value, $field, $entityId = NULL) {
 
-    if (self::isSerialized($field) && !is_array($value)) {
-      $value = CRM_Utils_Array::explodePadded($value);
+    if (self::isSerialized($field) && is_string($value)) {
+      // The autocomplete widget for selecting a default value uses a comma in-between values.
+      if ($field['html_type'] === 'Autocomplete-Select' && str_contains($value, ',')) {
+        $value = explode(',', $value);
+      }
+      else {
+        $value = CRM_Utils_Array::explodePadded($value);
+      }
     }
     // CRM-12989 fix
     if ($field['html_type'] == 'CheckBox' && $value) {
@@ -1286,6 +1151,7 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
       case 'Autocomplete-Select':
       case 'Radio':
       case 'CheckBox':
+      case 'Toggle':
         if ($field['data_type'] == 'ContactReference' && (is_array($value) || is_numeric($value))) {
           // Issue #2939 - guard against passing empty values to CRM_Core_DAO::getFieldValue(), which would throw an exception
           if (empty($value)) {
@@ -1322,7 +1188,7 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
           $display = implode(', ', $v);
         }
         else {
-          $display = $field['options'][$value] ?? '';
+          $display = $field['options'][$value ?? ''] ?? '';
           // For float type (see Number and Money) $value would be decimal like
           // 1.00 (because it is stored in db as decimal), while options array
           // key would be integer like 1. In this case expression on line above
@@ -1331,7 +1197,7 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
           // In such cases we could just get intval($value) and fetch matching
           // option again, but this would not work if key is float like 5.6.
           // So we need to truncate trailing zeros to make it work as expected.
-          if ($display === '' && is_numeric($value) && strpos(($value ?? ''), '.') !== FALSE) {
+          if ($display === '' && is_numeric($value) && str_contains(($value ?? ''), '.')) {
             // Use round() to truncate trailing zeros, e.g:
             // 10.00 -> 10, 10.60 -> 10.6, 10.69 -> 10.69.
             $value = (string) round($value, 5);
@@ -1369,7 +1235,9 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
             $customFormat = implode(" ", $customTimeFormat);
           }
         }
-        $display = CRM_Utils_Date::processDate($value, NULL, FALSE, $customFormat);
+        if ($value !== '') {
+          $display = CRM_Utils_Date::processDate($value, NULL, FALSE, $customFormat);
+        }
         break;
 
       case 'File':
@@ -1466,9 +1334,7 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
     $value = NULL
   ) {
     //get the type of custom field
-    $customField = new CRM_Core_BAO_CustomField();
-    $customField->id = $customFieldId;
-    $customField->find(TRUE);
+    $customField = self::getFieldObject($customFieldId);
 
     if (!$contactId) {
       if ($mode == CRM_Profile_Form::MODE_CREATE) {
@@ -1527,7 +1393,7 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
   }
 
   /**
-   * Get file url.
+   * Contrary to the function name, this returns a formatted link, not a url string.
    *
    * @param int $contactID
    * @param int $cfID
@@ -1564,45 +1430,15 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
 
       $result = [];
       if ($fileID) {
-        $fileType = CRM_Core_DAO::getFieldValue('CRM_Core_DAO_File',
-          $fileID,
-          'mime_type',
-          'id'
-        );
-        $result['file_id'] = $fileID;
+        [$path, $fileType] = CRM_Core_BAO_File::path($fileID);
 
-        if ($fileType == 'image/jpeg' ||
-          $fileType == 'image/pjpeg' ||
-          $fileType == 'image/gif' ||
-          $fileType == 'image/x-png' ||
-          $fileType == 'image/png'
-        ) {
-          $entityId = CRM_Core_DAO::getFieldValue('CRM_Core_DAO_EntityFile',
-            $fileID,
-            'entity_id',
-            'file_id'
-          );
-          [$path] = CRM_Core_BAO_File::path($fileID, $entityId);
-          $fileHash = CRM_Core_BAO_File::generateFileHash($entityId, $fileID);
-          $url = CRM_Utils_System::url('civicrm/file',
-            "reset=1&id=$fileID&eid=$entityId&fcs=$fileHash",
-            $absolute, NULL, TRUE, TRUE
-          );
-          $result['file_url'] = CRM_Utils_File::getFileURL($path, $fileType, $url);
-        }
-        // for non image files
-        else {
-          $uri = CRM_Core_DAO::getFieldValue('CRM_Core_DAO_File',
-            $fileID,
-            'uri'
-          );
-          $fileHash = CRM_Core_BAO_File::generateFileHash($contactID, $fileID);
-          $url = CRM_Utils_System::url('civicrm/file',
-            "reset=1&id=$fileID&eid=$contactID&fcs=$fileHash",
-            $absolute, NULL, TRUE, TRUE
-          );
-          $result['file_url'] = CRM_Utils_File::getFileURL($uri, $fileType, $url);
-        }
+        $flags = 'h' . ($absolute ? 'a' : 'r');
+        $url = (string) CRM_Core_BAO_File::getFileUrl($fileID, $absolute ? 'frontend' : 'current', $flags);
+
+        $result = [
+          'file_id' => $fileID,
+          'file_url' => CRM_Utils_File::getFileURL($path, $fileType, $url),
+        ];
       }
       return $result;
     }
@@ -1629,6 +1465,8 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
    *   If false, do not include permissioning clause.
    * @param bool $includeViewOnly
    *   If true, fields marked 'View Only' are included. Required for APIv3.
+   * @param bool $formatLegacyCheckboxes
+   *   If true, convert legacy html-style [value => bool] into an array of values.
    *
    * @return array|NULL
    *   formatted custom field array
@@ -1639,11 +1477,17 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
     $entityId = NULL,
     $inline = FALSE,
     $checkPermission = TRUE,
-    $includeViewOnly = FALSE
+    $includeViewOnly = FALSE,
+    $formatLegacyCheckboxes = TRUE
   ) {
-    //get the custom fields for the entity
-    //subtype and basic type
-    $customDataSubType = NULL;
+    // FIXME: The following code faithfully preserves this function's longstanding behavior of filtering group/field properties,
+    // and returning NULL if the custom field does not match... But why?
+    // This could all be a lot simpler without the filters.
+    $filters = [
+      'is_active' => TRUE,
+    ];
+
+    // Expand contact type and subtype filters appropriately
     if ($customFieldExtend) {
       // This is the case when getFieldsForImport() requires fields
       // of subtype and its parent.CRM-5143
@@ -1651,28 +1495,43 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
       $customDataSubType = array_intersect(CRM_Contact_BAO_ContactType::subTypes(), (array) $customFieldExtend);
       if (!empty($customDataSubType) && is_array($customDataSubType)) {
         $customFieldExtend = CRM_Contact_BAO_ContactType::getBasicType($customDataSubType);
-        if (is_array($customFieldExtend)) {
-          $customFieldExtend = array_unique(array_values($customFieldExtend));
+      }
+      if ($customDataSubType) {
+        $customDataSubType[] = NULL;
+        $filters['extends_entity_column_value'] = $customDataSubType;
+      }
+      if (is_array($customFieldExtend)) {
+        if (array_intersect(CRM_Contact_BAO_ContactType::basicTypes(TRUE), $customFieldExtend)) {
+          $customFieldExtend[] = 'Contact';
         }
+        $customFieldExtend = array_unique(array_values($customFieldExtend));
+      }
+      $filters['extends'] = $customFieldExtend;
+    }
+
+    // FIXME: Why is this filter needed?
+    if ($inline) {
+      $filters['style'] = 'Inline';
+    }
+
+    // End block of filter handling with dubious value
+
+    // FIXME: Without all the above filter stuff, this could just call self::getField().
+    $customGroups = CRM_Core_BAO_CustomGroup::getAll($filters, $checkPermission ? CRM_Core_Permission::EDIT : NULL);
+    foreach ($customGroups as $customGroup) {
+      if (isset($customGroup['fields'][$customFieldId])) {
+        $customField = $customGroup['fields'][$customFieldId];
+        break;
       }
     }
 
-    $customFields = CRM_Core_BAO_CustomField::getFields($customFieldExtend,
-      FALSE,
-      $inline,
-      $customDataSubType,
-      NULL,
-      FALSE,
-      FALSE,
-      $checkPermission ? CRM_Core_Permission::EDIT : FALSE
-    );
-
-    if (!array_key_exists($customFieldId, $customFields)) {
+    // Return if field doesn't exist or doesn't match filters.
+    if (!isset($customField)) {
       return NULL;
     }
 
     // return if field is a 'code' field
-    if (!$includeViewOnly && !empty($customFields[$customFieldId]['is_view'])) {
+    if (!$includeViewOnly && !empty($customField['is_view'])) {
       return NULL;
     }
 
@@ -1680,7 +1539,7 @@ class CRM_Core_BAO_CustomField extends CRM_Core_DAO_CustomField {
 
     if (!$customValueId &&
       // we always create new entites for is_multiple unless specified
-      !$customFields[$customFieldId]['is_multiple'] &&
+      !$customGroup['is_multiple'] &&
       $entityId
     ) {
       $query = "
@@ -1691,49 +1550,47 @@ SELECT id
       $customValueId = CRM_Core_DAO::singleValueQuery($query);
     }
 
-    //fix checkbox, now check box always submits values
-    if ($customFields[$customFieldId]['html_type'] == 'CheckBox') {
-      if ($value) {
-        // Note that only during merge this is not an array, and you can directly use value
-        if (is_array($value)) {
-          $selectedValues = [];
-          foreach ($value as $selId => $val) {
-            if ($val) {
-              $selectedValues[] = $selId;
-            }
+    // Convert legacy html-style [value => bool] into an array of values
+    if ($customField['html_type'] == 'CheckBox' && $formatLegacyCheckboxes) {
+      // Note that only during merge this is not an array, and you can directly use value
+      if (is_array($value)) {
+        $selectedValues = [];
+        foreach ($value as $selId => $val) {
+          if ($val) {
+            $selectedValues[] = $selId;
           }
-          if (!empty($selectedValues)) {
-            $value = CRM_Core_DAO::VALUE_SEPARATOR . implode(CRM_Core_DAO::VALUE_SEPARATOR,
-                $selectedValues
-              ) . CRM_Core_DAO::VALUE_SEPARATOR;
-          }
-          else {
-            $value = '';
-          }
+        }
+        if (!empty($selectedValues)) {
+          $value = CRM_Core_DAO::VALUE_SEPARATOR . implode(CRM_Core_DAO::VALUE_SEPARATOR,
+              $selectedValues
+            ) . CRM_Core_DAO::VALUE_SEPARATOR;
+        }
+        else {
+          $value = '';
         }
       }
     }
-    elseif (self::isSerialized($customFields[$customFieldId])) {
+    elseif ($customField['serialize']) {
       // Select2 v3 returns a comma-separated string.
-      if ($customFields[$customFieldId]['html_type'] == 'Autocomplete-Select' && is_string($value)) {
+      if ($customField['html_type'] == 'Autocomplete-Select' && is_string($value)) {
         $value = explode(',', $value);
       }
 
       $value = $value ? CRM_Utils_Array::implodePadded($value) : '';
     }
 
-    if (self::isSerialized($customFields[$customFieldId]) &&
-      $customFields[$customFieldId]['data_type'] == 'String' &&
-      !empty($customFields[$customFieldId]['text_length']) &&
+    if ($customField['serialize'] &&
+      $customField['data_type'] == 'String' &&
+      !empty($customField['text_length']) &&
       !empty($value)
     ) {
       // lets make sure that value is less than the length, else we'll
       // be losing some data, CRM-7481
-      if (strlen($value) >= $customFields[$customFieldId]['text_length']) {
+      if (strlen($value) >= $customField['text_length']) {
         // need to do a few things here
 
         // 1. lets find a new length
-        $newLength = $customFields[$customFieldId]['text_length'];
+        $newLength = $customField['text_length'];
         $minLength = strlen($value);
         while ($newLength < $minLength) {
           $newLength = $newLength * 2;
@@ -1745,97 +1602,99 @@ SELECT id
       }
     }
 
-    $date = NULL;
-    if ($customFields[$customFieldId]['data_type'] == 'Date') {
-      if (!CRM_Utils_System::isNull($value)) {
-        $format = $customFields[$customFieldId]['date_format'];
-        $date = CRM_Utils_Date::processDate($value, NULL, FALSE, 'YmdHis', $format);
-      }
-      $value = $date;
-    }
-
-    if ($customFields[$customFieldId]['data_type'] == 'Float' ||
-      $customFields[$customFieldId]['data_type'] == 'Money'
-    ) {
-      if (!$value) {
-        $value = 0;
-      }
-
-      if ($customFields[$customFieldId]['data_type'] == 'Money') {
-        $value = CRM_Utils_Rule::cleanMoney($value);
-      }
-    }
-
-    if (($customFields[$customFieldId]['data_type'] == 'StateProvince' ||
-        $customFields[$customFieldId]['data_type'] == 'Country'
-      ) &&
-      empty($value)
-    ) {
-      // CRM-3415
-      $value = 0;
-    }
-
-    $fileID = NULL;
-
-    if ($customFields[$customFieldId]['data_type'] == 'File') {
-      if (empty($value)) {
-        return;
-      }
-
-      $config = CRM_Core_Config::singleton();
-
-      // If we are already passing the file id as a value then retrieve and set the file data
-      if (CRM_Utils_Rule::integer($value)) {
-        $fileDAO = new CRM_Core_DAO_File();
-        $fileDAO->id = $value;
-        $fileDAO->find(TRUE);
-        if ($fileDAO->N) {
-          $fileID = $value;
-          $fName = $fileDAO->uri;
-          $mimeType = $fileDAO->mime_type;
+    switch ($customField['data_type']) {
+      case 'Date':
+        $date = NULL;
+        if (!CRM_Utils_System::isNull($value)) {
+          $format = $customField['date_format'];
+          $date = CRM_Utils_Date::processDate($value, NULL, FALSE, 'YmdHis', $format);
         }
-      }
-      elseif (empty($value['name'])) {
-        // Happens when calling the API to update custom fields values, but the filename
-        // is empty, for an existing entity (in a specific case, was from a d7-webform
-        // that was updating a relationship with a File customfield, so $value['id'] was
-        // not empty, but the filename was empty.
-        return;
-      }
-      else {
-        $fName = $value['name'];
-        $mimeType = $value['type'];
-      }
+        $value = $date;
+        break;
 
-      $filename = pathinfo($fName, PATHINFO_BASENAME);
+      case 'Float':
+      case 'Money':
+        if ($customField['data_type'] == 'Money' && isset($value) && $value !== '') {
+          $value = CRM_Utils_Rule::cleanMoney($value);
+        }
+        break;
 
-      // rename this file to go into the secure directory only if
-      // user has uploaded new file not existing verfied on the basis of $fileID
-      if (empty($fileID) && !rename($fName, $config->customFileUploadDir . $filename)) {
-        CRM_Core_Error::statusBounce(ts('Could not move custom file to custom upload directory'));
-      }
+      case 'StateProvince':
+      case 'Country':
+        if (empty($value)) {
+          // CRM-3415
+          $value = 0;
+        }
+        break;
 
-      if ($customValueId && empty($fileID)) {
-        $query = "
+      case 'File':
+        $fileID = NULL;
+
+        // dev/core#5827 - Allow file values to be unset, but only for api calls (indicated with $includeViewOnly == true)
+        if ($includeViewOnly && $value === '') {
+          // Pass-thru empty value
+        }
+        else {
+          if (empty($value)) {
+            return NULL;
+          }
+
+          // If we are already passing the file id as a value then retrieve and set the file data
+          if (CRM_Utils_Rule::integer($value)) {
+            $fileDAO = new CRM_Core_DAO_File();
+            $fileDAO->id = $value;
+            $fileDAO->find(TRUE);
+            if ($fileDAO->N) {
+              $fileID = $value;
+              $fName = $fileDAO->uri;
+              $mimeType = $fileDAO->mime_type;
+            }
+          }
+          elseif (empty($value['name'])) {
+            // Happens when calling the API to update custom fields values, but the filename
+            // is empty, for an existing entity (in a specific case, was from a d7-webform
+            // that was updating a relationship with a File customfield, so $value['id'] was
+            // not empty, but the filename was empty.
+            return NULL;
+          }
+          else {
+            $fName = $value['name'];
+            $mimeType = $value['type'];
+          }
+
+          $filename = pathinfo($fName, PATHINFO_BASENAME);
+
+          $fileParams = [
+            'uri' => $filename,
+            'mime_type' => $mimeType,
+            'upload_date' => date('YmdHis'),
+            'is_public' => $customField['file_is_public'],
+          ];
+
+          // Move new file to appropriate public/private directory
+          $filePath = \CRM_Core_BAO_File::getFilePath($fileParams);
+          if (empty($fileID) && $fName !== $filePath && !rename($fName, $filePath)) {
+            CRM_Core_Error::statusBounce(ts('Could not move custom file to custom upload directory'));
+          }
+
+          if ($customValueId && empty($fileID)) {
+            $query = "
 SELECT $columnName
   FROM $tableName
  WHERE id = %1";
-        $params = [1 => [$customValueId, 'Integer']];
-        $fileID = CRM_Core_DAO::singleValueQuery($query, $params);
-      }
+            $params = [1 => [$customValueId, 'Integer']];
+            $fileID = CRM_Core_DAO::singleValueQuery($query, $params);
+          }
 
-      $fileDAO = new CRM_Core_DAO_File();
+          if ($fileID) {
+            $fileParams['id'] = $fileID;
+          }
 
-      if ($fileID) {
-        $fileDAO->id = $fileID;
-      }
-
-      $fileDAO->uri = $filename;
-      $fileDAO->mime_type = $mimeType;
-      $fileDAO->upload_date = date('YmdHis');
-      $fileDAO->save();
-      $fileID = $fileDAO->id;
-      $value = $filename;
+          $fileDAO = CRM_Core_BAO_File::writeRecord($fileParams);
+          $fileID = $fileDAO->id;
+          $value = $filename;
+        }
+        break;
     }
 
     if (!is_array($customFormatted)) {
@@ -1857,15 +1716,17 @@ SELECT $columnName
     $customFormatted[$customFieldId][$index] = [
       'id' => $customValueId > 0 ? $customValueId : NULL,
       'value' => $value,
-      'type' => $customFields[$customFieldId]['data_type'],
+      // 'type' is the data type, 'html_type' is the input type.
+      'type' => $customField['data_type'],
+      'html_type' => $customField['html_type'],
       'custom_field_id' => $customFieldId,
       'custom_group_id' => $groupID,
       'table_name' => $tableName,
       'column_name' => $columnName,
-      'file_id' => $fileID,
+      'file_id' => $fileID ?? NULL,
       // is_multiple refers to the custom group, serialize refers to the field.
-      'is_multiple' => $customFields[$customFieldId]['is_multiple'],
-      'serialize' => $customFields[$customFieldId]['serialize'],
+      'is_multiple' => $customGroup['is_multiple'],
+      'serialize' => $customField['serialize'],
     ];
 
     //we need to sort so that custom fields are created in the order of entry
@@ -1881,16 +1742,9 @@ SELECT $columnName
    * @return array
    */
   public static function defaultCustomTableSchema($params) {
-    // add the id and extends_id
-    $collation = CRM_Core_BAO_SchemaHandler::getInUseCollation();
-    $characterSet = 'utf8';
-    if (stripos($collation, 'utf8mb4') !== FALSE) {
-      $characterSet = 'utf8mb4';
-    }
     $table = [
       'name' => $params['name'],
       'is_multiple' => $params['is_multiple'],
-      'attributes' => "ENGINE=InnoDB DEFAULT CHARACTER SET {$characterSet} COLLATE {$collation}",
       'fields' => [
         [
           'name' => 'id',
@@ -1911,12 +1765,6 @@ SELECT $columnName
         ],
       ],
     ];
-
-    // If on MySQL 5.6 include ROW_FORMAT=DYNAMIC to fix unit tests
-    $databaseVersion = CRM_Utils_SQL::getDatabaseVersion();
-    if (version_compare($databaseVersion, '5.7', '<') && version_compare($databaseVersion, '5.6', '>=')) {
-      $table['attributes'] = $table['attributes'] . ' ROW_FORMAT=DYNAMIC';
-    }
 
     if (!$params['is_multiple']) {
       $table['indexes'] = [
@@ -2122,7 +1970,7 @@ WHERE  id IN ( %1, %2 )
 
     $add->save();
 
-    CRM_Utils_System::flushCache();
+    Civi::rebuild(['system' => TRUE])->execute();
     CRM_Utils_API_HTMLInputCoder::singleton()->flushCache();
   }
 
@@ -2247,6 +2095,7 @@ WHERE  id IN ( %1, %2 )
           // Don't set reserved as it's not a built-in option group and may be useful for other custom fields.
           'is_reserved' => 0,
           'data_type' => $dataType,
+          'option_value_fields' => self::getOptionValueFields($params),
         ]);
         $params['option_group_id'] = $optionGroup->id;
         if (!empty($params['option_value']) && is_array($params['option_value'])) {
@@ -2288,6 +2137,23 @@ WHERE  id IN ( %1, %2 )
   }
 
   /**
+   * Get option_value_fields for auto-creating a group
+   *
+   * This checks option values to see if any contain
+   * extra fields like description, color, icon, etc.
+   */
+  private static function getOptionValueFields(array $params): array {
+    $fields = ['name', 'label'];
+    $extras = array_diff(array_keys(CRM_Core_SelectValues::optionValueFields()), $fields);
+    foreach ($extras as $extra) {
+      if (!empty($params["option_$extra"]) && array_filter($params["option_$extra"])) {
+        $fields[] = $extra;
+      }
+    }
+    return $fields;
+  }
+
+  /**
    * Create database entry for custom field and related option groups.
    *
    * @param array $params
@@ -2297,6 +2163,9 @@ WHERE  id IN ( %1, %2 )
   protected static function createCustomFieldRecord($params) {
     $transaction = new CRM_Core_Transaction();
     $params = self::prepareCreate($params);
+
+    // Clear caches before passing the data to hooks.
+    Civi::cache('metadata')->clear();
 
     $customField = new CRM_Core_DAO_CustomField();
     $customField->copyValues($params);
@@ -2360,39 +2229,33 @@ WHERE  id IN ( %1, %2 )
     if (empty($fieldIDs)) {
       return;
     }
-    $fields = civicrm_api3('CustomField', 'get', ['id' => ['IN' => $fieldIDs], 'return' => ['custom_group_id.is_multiple', 'custom_group_id.table_name', 'column_name', 'data_type'], 'options' => ['limit' => 0]])['values'];
     $return = [];
     foreach ($fieldIDs as $fieldID) {
       $return[] = 'custom_' . $fieldID;
     }
     $oldContact = civicrm_api3('Contact', 'getsingle', ['id' => $oldContactID, 'return' => $return]);
-    $newContact = civicrm_api3('Contact', 'getsingle', ['id' => $newContactID, 'return' => $return]);
 
     // The moveAllBelongings function has functionality to move custom fields. It doesn't work very well...
     // @todo handle all fields here but more immediately Country since that is broken at the moment.
-    $fieldTypesNotHandledInMergeAttempt = ['File'];
-    foreach ($fields as $field) {
-      $isMultiple = !empty($field['custom_group_id.is_multiple']);
+    $customValues = [];
+    foreach ($fieldIDs as $fieldID) {
+      $field = CRM_Core_BAO_CustomField::getField($fieldID);
+      $isMultiple = !empty($field['custom_group']['is_multiple']);
       if ($field['data_type'] === 'File' && !$isMultiple) {
-        if (!empty($oldContact['custom_' . $field['id']]) && !empty($newContact['custom_' . $field['id']])) {
-          CRM_Core_BAO_File::deleteFileReferences($oldContact['custom_' . $field['id']], $oldContactID, $field['id']);
+        $fieldName = "custom_$fieldID";
+        $rowId = CRM_Core_DAO::singleValueQuery("SELECT id FROM %1 WHERE entity_id = %2", [
+          1 => [$field['custom_group']['table_name'], 'MysqlColumnNameOrAlias'],
+          2 => [$newContactID, 'Integer'],
+        ]);
+        if ($rowId) {
+          $fieldName .= '_' . $rowId;
         }
-        if (!empty($oldContact['custom_' . $field['id']])) {
-          CRM_Core_DAO::executeQuery("
-            UPDATE civicrm_entity_file
-            SET entity_id = $newContactID
-            WHERE file_id = {$oldContact['custom_' . $field['id']]}"
-          );
-        }
+        $customValues[$fieldName] = $oldContact["custom_$fieldID"] ?? NULL;
       }
-      if (in_array($field['data_type'], $fieldTypesNotHandledInMergeAttempt) && !$isMultiple) {
-        CRM_Core_DAO::executeQuery(
-          "INSERT INTO {$field['custom_group_id.table_name']} (entity_id, `{$field['column_name']}`)
-          VALUES ($newContactID, {$oldContact['custom_' . $field['id']]})
-          ON DUPLICATE KEY UPDATE
-          `{$field['column_name']}` = {$oldContact['custom_' . $field['id']]}
-        ");
-      }
+    }
+    if ($customValues) {
+      $customValues['entityID'] = $newContactID;
+      \CRM_Core_BAO_CustomValueTable::setValues($customValues);
     }
   }
 
@@ -2527,8 +2390,10 @@ INNER JOIN  civicrm_custom_field f ON ( g.id = f.option_group_id )
    *
    * @param int $optionGroupId
    *   Option group id.
+   * @param int $max
+   *   Set to 1 if the field still exists, 0 otherwise
    */
-  public static function checkOptionGroup($optionGroupId) {
+  public static function checkOptionGroup($optionGroupId, int $max = 1) {
     $query = "
 SELECT count(*)
 FROM   civicrm_custom_field
@@ -2536,7 +2401,7 @@ WHERE  option_group_id = {$optionGroupId}";
 
     $count = CRM_Core_DAO::singleValueQuery($query);
 
-    if ($count < 2) {
+    if ($count <= $max) {
       //delete the option group
       CRM_Core_BAO_OptionGroup::deleteRecord(['id' => $optionGroupId]);
     }
@@ -2596,18 +2461,8 @@ AND      default_value IS NOT NULL";
     $customData = [];
 
     foreach ($params as $key => $value) {
-      if ($customFieldInfo = CRM_Core_BAO_CustomField::getKeyID($key, TRUE)) {
-
-        // for autocomplete transfer hidden value instead of label
-        if ($params[$key] && isset($params[$key . '_id'])) {
-          $value = $params[$key . '_id'];
-        }
-
-        // we need to append time with date
-        if ($params[$key] && isset($params[$key . '_time'])) {
-          $value .= ' ' . $params[$key . '_time'];
-        }
-
+      $customFieldInfo = CRM_Core_BAO_CustomField::getKeyID($key, TRUE);
+      if ($customFieldInfo[0]) {
         CRM_Core_BAO_CustomField::formatCustomField($customFieldInfo[0],
           $customData,
           $value,
@@ -2623,7 +2478,8 @@ AND      default_value IS NOT NULL";
   }
 
   /**
-   * Get custom field ID from field/group name/title.
+   * @deprecated Old function with weirdly ambiguous logic.
+   * Only used by APIv3. Use at your peril.
    *
    * @param string $fieldName Field name or label
    * @param string|null $groupName (Optional) Group name or label
@@ -2666,7 +2522,7 @@ AND      default_value IS NOT NULL";
   }
 
   /**
-   * Given ID of a custom field, return its name as well as the name of the custom group it belongs to.
+   * @deprecated Old function only used by APIv3.
    *
    * @param array $ids
    *
@@ -2723,25 +2579,14 @@ WHERE      f.id IN ($ids)";
 
     //lets start w/ params.
     foreach ($params as $key => $value) {
-      $customFieldID = self::getKeyID($key);
-      if (!$customFieldID) {
+      $field = CRM_Core_BAO_CustomField::getFieldByName($key);
+      if (!$field) {
         continue;
       }
-
-      //load the structural info for given field.
-      $field = new CRM_Core_DAO_CustomField();
-      $field->id = $customFieldID;
-      if (!$field->find(TRUE)) {
-        continue;
-      }
-      $dataType = $field->data_type;
-
       $profileField = $profileFields[$key] ?? [];
       $fieldTitle = $profileField['title'] ?? NULL;
       $isRequired = $profileField['is_required'] ?? NULL;
-      if (!$fieldTitle) {
-        $fieldTitle = $field->label;
-      }
+      $fieldTitle = CRM_Utils_String::purifyHTML($fieldTitle ?: $field['label']);
 
       //no need to validate.
       if (CRM_Utils_System::isNull($value) && !$isRequired) {
@@ -2756,7 +2601,7 @@ WHERE      f.id IN ($ids)";
 
       //now time to take care of custom field form rules.
       $ruleName = $errorMsg = NULL;
-      switch ($dataType) {
+      switch ($field['data_type']) {
         case 'Int':
           $ruleName = 'integer';
           $errorMsg = ts('%1 must be an integer (whole number).', [1 => $fieldTitle]);
@@ -2794,33 +2639,19 @@ WHERE      f.id IN ($ids)";
   }
 
   /**
-   * Is this field a multi record field.
+   * If custom field belongs to a multi-record group, return the group id.
    *
-   * @param int $customId
+   * @param string|int $customId
+   *   Either the numeric id or a string like "custom_xx"
    *
-   * @return bool
+   * @return int|false
    */
   public static function isMultiRecordField($customId) {
-    $isMultipleWithGid = FALSE;
     if (!is_numeric($customId)) {
       $customId = self::getKeyID($customId);
     }
-    if (is_numeric($customId)) {
-      $sql = "SELECT cg.id cgId
- FROM civicrm_custom_group cg
- INNER JOIN civicrm_custom_field cf
- ON cg.id = cf.custom_group_id
-WHERE cf.id = %1 AND cg.is_multiple = 1";
-      $params[1] = [$customId, 'Integer'];
-      $dao = CRM_Core_DAO::executeQuery($sql, $params);
-      if ($dao->fetch()) {
-        if ($dao->cgId) {
-          $isMultipleWithGid = $dao->cgId;
-        }
-      }
-    }
-
-    return $isMultipleWithGid;
+    $customGroup = self::getField((int) $customId)['custom_group'] ?? NULL;
+    return empty($customGroup['is_multiple']) ? FALSE : $customGroup['id'];
   }
 
   /**
@@ -2842,7 +2673,7 @@ WHERE cf.id = %1 AND cg.is_multiple = 1";
     if (in_array($field['data_type'], ['EntityReference', 'ContactReference', 'Date'])) {
       return FALSE;
     }
-    if (strpos($field['html_type'], 'Select') !== FALSE) {
+    if (str_contains($field['html_type'], 'Select')) {
       return TRUE;
     }
     return !empty($field['option_group_id']);
@@ -2860,11 +2691,26 @@ WHERE cf.id = %1 AND cg.is_multiple = 1";
     $html_type = is_object($field) ? $field->html_type : $field['html_type'];
     // APIv3 has a "legacy" mode where it returns old-style html_type of "Multi-Select"
     // If anyone is using this function in conjunction with legacy api output, we'll accomodate:
-    if ($html_type === 'CheckBox' || strpos($html_type, 'Multi') !== FALSE) {
+    if ($html_type === 'CheckBox' || str_contains($html_type, 'Multi')) {
       return TRUE;
     }
     // Otherwise this is the new standard as of 5.27
     return is_object($field) ? !empty($field->serialize) : !empty($field['serialize']);
+  }
+
+  public static function getFkEntity(array $field): ?string {
+    $dataTypeToFK = [
+      'ContactReference' => 'Contact',
+      'File' => 'File',
+    ];
+    return $field['fk_entity'] ?? $dataTypeToFK[$field['data_type']] ?? NULL;
+  }
+
+  public static function getFkEntityOnDeleteOptions(): array {
+    return [
+      'set_null' => ts('Delete reference'),
+      'cascade' => ts('Delete entity'),
+    ];
   }
 
   /**
@@ -2873,7 +2719,7 @@ WHERE cf.id = %1 AND cg.is_multiple = 1";
    * @return string
    */
   public function getEntity() {
-    $entity = CRM_Core_DAO::getFieldValue('CRM_Core_DAO_CustomGroup', $this->custom_group_id, 'extends');
+    $entity = self::getField($this->id)['custom_group']['extends'];
     return in_array($entity, CRM_Contact_BAO_ContactType::basicTypes(TRUE), TRUE) ? 'Contact' : $entity;
   }
 
@@ -2882,22 +2728,21 @@ WHERE cf.id = %1 AND cg.is_multiple = 1";
    * @return string
    */
   public function getEntityName(): string {
-    $isMultiple = CRM_Core_DAO::getFieldValue('CRM_Core_DAO_CustomGroup', $this->custom_group_id, 'is_multiple');
-    if ($isMultiple) {
-      $groupName = CRM_Core_DAO::getFieldValue('CRM_Core_DAO_CustomGroup', $this->custom_group_id, 'name');
-      return "Custom_$groupName";
+    $customGroup = self::getField($this->id)['custom_group'];
+    if ($customGroup['is_multiple']) {
+      return "Custom_{$customGroup['name']}";
     }
-    return CRM_Core_DAO::getFieldValue('CRM_Core_DAO_CustomGroup', $this->custom_group_id, 'extends');
+    return $customGroup['extends'];
   }
 
   /**
    * Set pseudoconstant properties for field metadata.
    *
    * @param array $field
-   * @param string|null $optionGroupName
    */
-  private static function getOptionsForField(&$field, $optionGroupName) {
-    if ($optionGroupName) {
+  private static function getOptionsForField(&$field) {
+    if (!empty($field['option_group_id'])) {
+      $optionGroupName = CRM_Core_DAO::getFieldValue('CRM_Core_DAO_OptionGroup', $field['option_group_id']);
       $field['pseudoconstant'] = [
         'optionGroupName' => $optionGroupName,
         'optionEditPath' => 'civicrm/admin/options/' . $optionGroupName,
@@ -2948,10 +2793,13 @@ WHERE cf.id = %1 AND cg.is_multiple = 1";
       'name' => $field->column_name,
       'type' => CRM_Core_BAO_CustomValueTable::fieldToSQLType(
         $field->data_type,
-        $field->text_length
+        $field->text_length,
+        $field->serialize,
+        $field->fk_entity ?? ''
       ),
       'required' => $field->is_required,
-      'searchable' => $field->is_searchable,
+      'searchable' => $field->is_searchable && $field->is_active,
+      'serialize' => $field->serialize,
     ];
 
     // For adding/dropping FK constraints
@@ -2971,11 +2819,6 @@ WHERE cf.id = %1 AND cg.is_multiple = 1";
         $params['fk_field_name'] = 'id';
         $params['fk_attributes'] = 'ON DELETE SET NULL';
       }
-    }
-    if ($field->serialize) {
-      // Ensure length is at least 255, but allow it to go higher.
-      $text_length = intval($field->text_length) < 255 ? 255 : $field->text_length;
-      $params['type'] = 'varchar(' . $text_length . ')';
     }
     if (isset($field->default_value)) {
       $params['default'] = "'{$field->default_value}'";
@@ -2999,6 +2842,7 @@ WHERE cf.id = %1 AND cg.is_multiple = 1";
     $cache = CRM_Utils_Cache::singleton();
     $options = $cache->get($cacheKey);
     if (!isset($options)) {
+      $entity = in_array($entity, CRM_Contact_BAO_ContactType::basicTypes(TRUE)) ? 'Contact' : $entity;
       // This will hold the list of options in format key => label
       $options = [];
 
@@ -3016,7 +2860,6 @@ WHERE cf.id = %1 AND cg.is_multiple = 1";
       elseif ($dataType === 'Boolean') {
         $options = $context === 'validate' ? [0, 1] : CRM_Core_SelectValues::boolean();
       }
-      CRM_Utils_Hook::customFieldOptions($id, $options);
       CRM_Utils_Hook::fieldOptions($entity, "custom_{$id}", $options, ['context' => $context]);
       $cache->set($cacheKey, $options);
     }

@@ -36,7 +36,7 @@ class CRM_Logging_SchemaTest extends CiviUnitTestCase {
    *
    * @return array
    */
-  public function queryExamples(): array {
+  public static function queryExamples(): array {
     $examples = [];
     $examples[] = ["`modified_date` timestamp NULL DEFAULT current_timestamp() ON UPDATE current_timestamp() COMMENT 'When the mailing (or closely related entity) was created or modified or deleted.'", "`modified_date` timestamp NULL  COMMENT 'When the mailing (or closely related entity) was created or modified or deleted.'"];
     $examples[] = ["`modified_date` timestamp NULL DEFAULT current_timestamp ON UPDATE current_timestamp COMMENT 'When the mailing (or closely related entity) was created or modified or deleted.'", "`modified_date` timestamp NULL  COMMENT 'When the mailing (or closely related entity) was created or modified or deleted.'"];
@@ -73,6 +73,60 @@ class CRM_Logging_SchemaTest extends CiviUnitTestCase {
     while ($log_table->fetch()) {
       $this->assertMatchesRegularExpression('/ENGINE=MyISAM/', $log_table->Create_Table);
     }
+  }
+
+  public function testAlterSchemaAddFieldOnLoggingExcludedTable(): void {
+    $this->hookClass->setHook('civicrm_alterLogTables', [$this, 'hookNoTimezoneLog']);
+    Civi::settings()->set('logging', TRUE);
+    $this->assertFalse(\Civi::schemaHelper()->tableExists('log_civicrm_timezone'));
+    $this->assertTrue(\Civi::schemaHelper()->tableExists('log_civicrm_translation'));
+
+    \Civi::schemaHelper()->dropSchemaField('Timezone', 'gmt');
+    $this->assertFalse(\Civi::schemaHelper()->schemaFieldExists('Timezone', 'gmt'));
+    $this->assertFalse(\Civi::schemaHelper()->tableExists('log_civicrm_timezone'));
+
+    \Civi::schemaHelper()->alterSchemaField('Timezone', 'gmt', [
+      'title' => ts('GMT Name of Timezone'),
+      'sql_type' => 'varchar(64)',
+      'input_type' => 'Text',
+      'description' => ts('GMT name of the timezone'),
+      'add' => '1.8',
+    ]);
+    $this->assertFalse(\Civi::schemaHelper()->tableExists('log_civicrm_timezone'));
+  }
+
+  /**
+   * If a hook adds a table that does not exist we should skip rather than fail.
+   *
+   * @return void
+   */
+  public function testAlterSchemaEnableLoggingWithMadeUpTableInHook(): void {
+    $this->hookClass->setHook('civicrm_alterLogTables', [$this, 'hookMadeUpTable']);
+    Civi::settings()->set('logging', TRUE);
+    $this->assertFalse(\Civi::schemaHelper()->tableExists('log_civicrm_fantasy'));
+    $this->assertTrue(\Civi::schemaHelper()->tableExists('log_civicrm_translation'));
+  }
+
+  /**
+   * Alter log spec to not log civicrm_timezone
+   *
+   * @param array $logTableSpec
+   *
+   * @return void
+   */
+  public function hookNoTimezoneLog(array &$logTableSpec): void {
+    unset($logTableSpec['civicrm_timezone']);
+  }
+
+  /**
+   * Alter log spec to not log civicrm_timzone
+   *
+   * @param array $logTableSpec
+   *
+   * @return void
+   */
+  public function hookMadeUpTable(array &$logTableSpec): void {
+    $logTableSpec['civicrm_fantasy'] = [];
   }
 
   /**
@@ -439,6 +493,13 @@ class CRM_Logging_SchemaTest extends CiviUnitTestCase {
     $this->assertStringContainsString('`texty` varchar(255)', $dao->Create_Table);
     $this->assertStringContainsString('ENGINE=InnoDB', $dao->Create_Table);
     $this->assertStringNotContainsString('FOREIGN KEY', $dao->Create_Table);
+  }
+
+  public function testGetLogTableNames(): void {
+    Civi::settings()->set('logging', TRUE);
+    $log_tables = (new CRM_Logging_Schema())->getLogTableNames();
+    $this->assertIsArray($log_tables);
+    $this->assertNotEmpty($log_tables);
   }
 
   /**

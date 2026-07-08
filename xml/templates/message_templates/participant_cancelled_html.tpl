@@ -10,14 +10,14 @@
 {capture assign=labelStyle}style="padding: 4px; border-bottom: 1px solid #999; background-color: #f7f7f7;"{/capture}
 {capture assign=valueStyle}style="padding: 4px; border-bottom: 1px solid #999;"{/capture}
 
-  <table id="crm-event_receipt" style="font-family: Arial, Verdana, sans-serif; text-align: left; width:100%; max-width:700px; padding:0; margin:0; border:0px;">
-
   <!-- BEGIN HEADER -->
-  <!-- You can add table row(s) here with logo or other header elements -->
+    {* To modify content in this section, you can edit the Custom Token named "Message Header". See also: https://docs.civicrm.org/user/en/latest/email/message-templates/#modifying-system-workflow-message-templates *}
+    {site.message_header}
   <!-- END HEADER -->
 
   <!-- BEGIN CONTENT -->
 
+  <table id="crm-event_receipt" style="font-family: Arial, Verdana, sans-serif; text-align: left; width:100%; max-width:700px; padding:0; margin:0; border:0px;">
   <tr>
    <td>
     {assign var="greeting" value="{contact.email_greeting_display}"}{if $greeting}<p>{$greeting},</p>{/if}
@@ -38,81 +38,74 @@
        {event.start_date|crmDate:"%A"} {event.start_date|crmDate}{if {event.end_date|boolean}}-{if '{event.end_date|crmDate:"%Y%m%d"}' === '{event.start_date|crmDate:"%Y%m%d"}'}{event.end_date|crmDate:"Time"}{else}{event.end_date|crmDate:"%A"} {event.end_date|crmDate}{/if}{/if}
       </td>
      </tr>
-     <tr>
-      <td {$labelStyle}>
-       {ts}Participant Role{/ts}:
-      </td>
-      <td {$valueStyle}>
-       {participant.role_id:label}
-      </td>
-     </tr>
-
-    {if !empty($isShowLocation)}
-          <tr>
-            <td colspan="2" {$valueStyle}>
-                {event.location}
-            </td>
-          </tr>
-        {/if}
+    {if {event.is_show_location|boolean}}
+        <tr>
+          <td colspan="2" {$valueStyle}>
+            {event.location}
+          </td>
+        </tr>
+      {/if}
 
     {if {event.loc_block_id.phone_id.phone|boolean} || {event.loc_block_id.email_id.email|boolean}}
+        <tr>
+          <td colspan="2" {$labelStyle}>
+            {ts}Event Contacts:{/ts}
+          </td>
+        </tr>
+
+        {if {event.loc_block_id.phone_id.phone|boolean}}
           <tr>
-            <td colspan="2" {$labelStyle}>
-                {ts}Event Contacts:{/ts}
+            <td {$labelStyle}>
+              {if {event.loc_block_id.phone_id.phone_type_id|boolean}}
+                {event.loc_block_id.phone_id.phone_type_id:label}
+              {else}
+                {ts}Phone{/ts}
+              {/if}
+            </td>
+            <td {$valueStyle}>
+              {event.loc_block_id.phone_id.phone} {if {event.loc_block_id.phone_id.phone_ext|boolean}}&nbsp;{ts}ext.{/ts} {event.loc_block_id.phone_id.phone_ext}{/if}
             </td>
           </tr>
-
-            {if {event.loc_block_id.phone_id.phone|boolean}}
-              <tr>
-                <td {$labelStyle}>
-                    {if {event.loc_block_id.phone_id.phone_type_id|boolean}}
-                        {event.loc_block_id.phone_id.phone_type_id:label}
-                    {else}
-                        {ts}Phone{/ts}
-                    {/if}
-                </td>
-                <td {$valueStyle}>
-                    {event.loc_block_id.phone_id.phone} {if {event.loc_block_id.phone_id.phone_ext|boolean}}&nbsp;{ts}ext.{/ts} {event.loc_block_id.phone_id.phone_ext}{/if}
-                </td>
-              </tr>
-            {/if}
-            {if {event.loc_block_id.phone_2_id.phone|boolean}}
-              <tr>
-                <td {$labelStyle}>
-                    {if {event.loc_block_id.phone_2_id.phone_type_id|boolean}}
-                        {event.loc_block_id.phone_2_id.phone_type_id:label}
-                    {else}
-                        {ts}Phone{/ts}
-                    {/if}
-                </td>
-                <td {$valueStyle}>
-                    {event.loc_block_id.phone_2_id.phone} {if {event.loc_block_id.phone_2_id.phone_ext|boolean}}&nbsp;{ts}ext.{/ts} {event.loc_block_id.phone_2_id.phone_ext}{/if}
-                </td>
-              </tr>
-            {/if}
-            {if {event.loc_block_id.email_id.email|boolean}}
-              <tr>
-                <td {$labelStyle}>
-                    {ts}Email{/ts}
-                </td>
-                <td {$valueStyle}>
-                    {event.loc_block_id.email_id.email}
-                </td>
-              </tr>
-            {/if}
-            {if {event.loc_block_id.email_2_id.email|boolean}}
-              <tr>
-                <td {$labelStyle}>
-                    {ts}Email{/ts}
-                </td>
-                <td {$valueStyle}>
-                    {event.loc_block_id.email_2_id.email}
-                </td>
-              </tr>
-            {/if}
+        {/if}
+        {if {event.loc_block_id.phone_2_id.phone|boolean}}
+          <tr>
+            <td {$labelStyle}>
+              {if {event.loc_block_id.phone_2_id.phone_type_id|boolean}}
+                {event.loc_block_id.phone_2_id.phone_type_id:label}
+              {else}
+                {ts}Phone{/ts}
+              {/if}
+            </td>
+            <td {$valueStyle}>
+              {event.loc_block_id.phone_2_id.phone} {if {event.loc_block_id.phone_2_id.phone_ext|boolean}}&nbsp;{ts}ext.{/ts} {event.loc_block_id.phone_2_id.phone_ext}{/if}
+            </td>
+          </tr>
         {/if}
 
-    {if '{contact.email}'}
+        {if {event.loc_block_id.email_id.email|boolean}}
+          <tr>
+            <td {$labelStyle}>
+              {ts}Email{/ts}
+            </td>
+            <td {$valueStyle}>
+              {event.loc_block_id.email_id.email}
+            </td>
+          </tr>
+        {/if}
+
+        {if {event.loc_block_id.email_2_id.email|boolean}}
+          <tr>
+            <td {$labelStyle}>
+              {ts}Email{/ts}
+            </td>
+            <td {$valueStyle}>
+              {event.loc_block_id.email_2_id.email}
+            </td>
+          </tr>
+        {/if}
+      {/if}
+
+    {if {contact.email|boolean}}
       <tr>
        <th {$headerStyle}>
         {ts}Registered Email{/ts}

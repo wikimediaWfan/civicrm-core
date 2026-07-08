@@ -34,7 +34,7 @@
     {/if}
     {if $paymentType eq 'owed'}
       <div class="action-link css_right crm-link-credit-card-mode">
-        <a class="open-inline-noreturn action-item crm-hover-button" href="{$ccModeLink}"><i class="crm-i fa-chevron-right" aria-hidden="true"></i> {ts}submit credit card payment{/ts}</a>
+        <a class="open-inline-noreturn action-item crm-hover-button" href="{$ccModeLink}"><i class="crm-i fa-chevron-right" role="img" aria-hidden="true"></i> {ts}submit credit card payment{/ts}</a>
       </div>
     {/if}
   {/if}
@@ -65,8 +65,8 @@
           </td>
         </tr>
         <tr id="fromEmail" class="crm-payment-form-block-from_email_address" style="display:none;">
-          <td class="label">{$form.from_email_address.label}</td>
-          <td>{$form.from_email_address.html} {help id="id-from_email" file="CRM/Contact/Form/Task/Help/Email/id-from_email.hlp"}</td>
+          <td class="label">{$form.from_email_address.label} {help id="from_email_address" file="CRM/Contact/Form/Task/Help/Email/id-from_email.hlp"}</td>
+          <td>{$form.from_email_address.html}</td>
         </tr>
       {/if}
       {if $contributionMode}
@@ -75,11 +75,11 @@
     </tr>
    </table>
 
-    <div class="crm-accordion-wrapper crm-accordion_title-accordion crm-accordion-processed" id="paymentDetails_Information">
+    <details class="crm-accordion-bold crm-accordion_title-accordion crm-accordion-processed" id="paymentDetails_Information" open>
       {if !$contributionMode}
-      <div class="crm-accordion-header">
+      <summary>
         {if $paymentType EQ 'refund'}{ts}Refund Details{/ts}{else}{ts}Payment Details{/ts}{/if}
-      </div>
+      </summary>
       <div class="crm-accordion-body">
         <table class="form-layout-compressed" >
           <tr class="crm-payment-form-block-trxn_date">
@@ -87,24 +87,25 @@
             <td>{$form.trxn_date.html}</td>
           </tr>
           <tr class="crm-payment-form-block-payment_instrument_id">
-            <td class="label">{$form.payment_instrument_id.label}</td>
-            <td >{$form.payment_instrument_id.html} {help id="payment_instrument_id"}</td>
+            <td class="label">{$form.payment_instrument_id.label} {help id="payment_instrument_id"}</td>
+            <td >{$form.payment_instrument_id.html}</td>
             </td>
           </tr>
           <tr class="crm-payment-form-block-trxn_id">
-            <td class="label">{$form.trxn_id.label}</td>
-            <td>{$form.trxn_id.html} {help id="id-trans_id"}</td>
+            <td class="label">{$form.trxn_id.label} {help id="trxn_id"}</td>
+            <td>{$form.trxn_id.html}</td>
           </tr>
           <tr class="crm-payment-form-block-fee_amount">
             <td class="label">{$form.fee_amount.label}</td>
-            <td{$valueStyle}>{$form.fee_amount.html}</td>
+            <td>{$form.fee_amount.html}</td>
           </tr>
         </table>
       </div>
       {/if}
-      {include file='CRM/Core/BillingBlockWrapper.tpl'}
-    </div>
+      {include file='CRM/Core/BillingBlockWrapper.tpl' currency=false showPaymentOnConfirm=false}
+    </details>
 
+    {include file="CRM/common/customDataBlock.tpl" customDataType='FinancialTrxn'}
     {literal}
     <script type="text/javascript">
       CRM.$(function($) {

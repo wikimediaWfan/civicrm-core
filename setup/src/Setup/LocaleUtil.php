@@ -31,10 +31,10 @@ class LocaleUtil {
     list ($first) = explode('_', $preferredLang);
 
     // Do we have a hard-coded preference? Use this for real oddballs.
-    $overrides = array(
+    $overrides = [
       'en' => 'en_US',
-    );
-    if (isset($overrides[$preferredLang]) && isset($availLangs[$overrides[$preferredLang]])) {
+    ];
+    if (isset($overrides[$preferredLang], $availLangs[$overrides[$preferredLang]])) {
       return $overrides[$preferredLang];
     }
 
@@ -47,7 +47,7 @@ class LocaleUtil {
     // Is there anything else that looks remotely close? (e.g. `cy` => `cy_GB`)
     ksort($availLangs);
     foreach ($availLangs as $availLang => $availLabel) {
-      if (strpos($availLang, $first) === 0) {
+      if (str_starts_with($availLang, $first)) {
         return $availLang;
       }
     }

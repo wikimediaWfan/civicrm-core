@@ -24,7 +24,7 @@ use Civi\Core\CiviEventDispatcher;
  */
 class WhitelistSubscriberTest extends \CiviUnitTestCase {
 
-  protected function getFixtures() {
+  protected static function getFixtures() {
     $recs = [];
 
     $recs['widget'] = [
@@ -96,9 +96,9 @@ class WhitelistSubscriberTest extends \CiviUnitTestCase {
     return $recs;
   }
 
-  public function restrictionCases() {
+  public static function restrictionCases() {
     $calls = $rules = [];
-    $recs = $this->getFixtures();
+    $recs = self::getFixtures();
 
     $calls['Widget.get-all'] = [
       'entity' => 'Widget',
@@ -349,18 +349,28 @@ class WhitelistSubscriberTest extends \CiviUnitTestCase {
    * @dataProvider restrictionCases
    */
   public function testEach($apiRequest, $rules, $expectSuccess) {
+    $recs = self::getFixtures();
+
+    $this->hookClass->setHook('civicrm_entityTypes', function (array &$entityTypes) {
+      $entityTypes['Widget'] = [
+        'name' => 'Widget',
+        'class' => 'CRM_Fake_DAO_Widget',
+        'table' => 'fake_widget',
+      ];
+      $entityTypes['Sprocket'] = [
+        'name' => 'Sprocket',
+        'class' => 'CRM_Fake_DAO_Sprocket',
+        'table' => 'fake_sprocket',
+      ];
+    });
     \CRM_Core_DAO_AllCoreTables::flush();
 
-    $recs = $this->getFixtures();
-
-    \CRM_Core_DAO_AllCoreTables::registerEntityType('Widget', 'CRM_Fake_DAO_Widget', 'fake_widget');
     $widgetProvider = new \Civi\API\Provider\StaticProvider(3, 'Widget',
       ['id', 'widget_type', 'provider', 'title'],
       [],
       $recs['widget']
     );
 
-    \CRM_Core_DAO_AllCoreTables::registerEntityType('Sprocket', 'CRM_Fake_DAO_Sprocket', 'fake_sprocket');
     $sprocketProvider = new \Civi\API\Provider\StaticProvider(
       3,
       'Sprocket',

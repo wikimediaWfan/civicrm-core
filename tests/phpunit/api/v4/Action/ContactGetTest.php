@@ -22,6 +22,7 @@ namespace api\v4\Action;
 use api\v4\Api4TestBase;
 use Civi\Api4\Contact;
 use Civi\Api4\Email;
+use Civi\Api4\Individual;
 use Civi\Api4\Relationship;
 use Civi\Test\TransactionalInterface;
 
@@ -104,6 +105,47 @@ class ContactGetTest extends Api4TestBase implements TransactionalInterface {
     $this->assertCount(1, (array) $limit1);
     $this->assertCount(1, $limit1);
     $this->assertTrue(!empty($limit1->single()['sort_name']));
+  }
+
+  public function testGetByIdWithContainsOperator(): void {
+    $cid = $this->createTestRecord('Contact')['id'];
+
+    $result = Contact::get(FALSE)
+      ->addSelect('id')
+      ->addWhere('id', 'CONTAINS', (string) $cid)
+      ->execute();
+    $this->assertContains($cid, $result->column('id'));
+
+    // String or not string – shouldn't matter.
+    $result = Contact::get(FALSE)
+      ->addSelect('id')
+      ->addWhere('id', 'CONTAINS', $cid)
+      ->execute();
+    $this->assertContains($cid, $result->column('id'));
+
+    $result = Contact::get(FALSE)
+      ->addSelect('id')
+      ->addWhere('id', 'NOT CONTAINS', (string) $cid)
+      ->setDebug(TRUE)
+      ->execute();
+    $this->assertNotContains($cid, $result->column('id'));
+    // Verify the sql uses LIKE '%{$cid}%'
+    $this->assertStringContainsString("%$cid%", $result->debug['sql'][0]);
+    // The sql should not include an IS NULL clause
+    $this->assertStringNotContainsStringIgnoringCase('IS NULL', $result->debug['sql'][0]);
+
+    // This is a really strange request; it could never possibly return any results.
+    // But let's at least ensure it composes valid SQL.
+    $result = Contact::get(FALSE)
+      ->addSelect('id')
+      ->addWhere('id', 'CONTAINS', 'Robert "Bob" O\'Connor')
+      ->setDebug(TRUE)
+      ->execute();
+    $this->assertCount(0, $result);
+    // Verify the sql uses LIKE
+    $this->assertStringContainsString('LIKE "%Robert \\"Bob\\" O\\\'Connor%"', $result->debug['sql'][0]);
+    // The sql should not include an IS NULL clause
+    $this->assertStringNotContainsStringIgnoringCase('IS NULL', $result->debug['sql'][0]);
   }
 
   /**
@@ -204,15 +246,15 @@ class ContactGetTest extends Api4TestBase implements TransactionalInterface {
     $last_name = uniqid(__FUNCTION__);
 
     $alice = Contact::create()
-      ->setValues(['first_name' => 'Alice', 'last_name' => $last_name])
+      ->setValues(['first_name' => 'Alice', 'middle_name' => 'Angela', 'last_name' => $last_name])
       ->execute()->first();
 
     $alex = Contact::create()
-      ->setValues(['first_name' => 'Alex', 'last_name' => $last_name])
+      ->setValues(['first_name' => 'Alex', 'middle_name' => 'Zed', 'last_name' => $last_name])
       ->execute()->first();
 
     $jane = Contact::create()
-      ->setValues(['first_name' => 'Jane', 'last_name' => $last_name])
+      ->setValues(['first_name' => 'Jane', 'middle_name' => 'Z', 'last_name' => $last_name])
       ->execute()->first();
 
     $holly = Contact::create()
@@ -287,6 +329,74 @@ class ContactGetTest extends Api4TestBase implements TransactionalInterface {
     $this->assertArrayHasKey($alice['id'], (array) $result);
     $this->assertArrayHasKey($alex['id'], (array) $result);
     $this->assertArrayHasKey($jane['id'], (array) $result);
+
+    $result = Contact::get(FALSE)
+      ->addWhere('last_name', '=', $last_name)
+      ->addWhere('middle_name', 'CONTAINS', 'A')
+      ->execute()->indexBy('id');
+    $this->assertCount(1, $result);
+    $this->assertArrayHasKey($alice['id'], (array) $result);
+
+    $result = Contact::get(FALSE)
+      ->addWhere('last_name', '=', $last_name)
+      ->addWhere('middle_name', 'NOT CONTAINS', 'Z')
+      ->execute()->indexBy('id');
+    $this->assertCount(5, $result);
+    $this->assertArrayHasKey($alice['id'], (array) $result);
+    $this->assertArrayHasKey($holly['id'], (array) $result);
+    $this->assertArrayHasKey($meg['id'], (array) $result);
+    $this->assertArrayHasKey($jess['id'], (array) $result);
+    $this->assertArrayHasKey($amy['id'], (array) $result);
+
+    $result = Contact::get(FALSE)
+      ->addWhere('last_name', '=', $last_name)
+      ->addWhere('middle_name', 'NOT CONTAINS', 'Zed')
+      ->execute()->indexBy('id');
+    $this->assertCount(6, $result);
+    $this->assertArrayHasKey($alice['id'], (array) $result);
+    $this->assertArrayHasKey($jane['id'], (array) $result);
+    $this->assertArrayHasKey($holly['id'], (array) $result);
+    $this->assertArrayHasKey($meg['id'], (array) $result);
+    $this->assertArrayHasKey($jess['id'], (array) $result);
+    $this->assertArrayHasKey($amy['id'], (array) $result);
+
+    // Check that punctuation in REGEXP isn't munged away.
+    $findByIDs = '^(' . $jane['id'] . '|' . $meg['id'] . '|' . $jess['id'] . '|' . $amy['id'] . ')$';
+    $result = Contact::get(FALSE)
+      ->addWhere('id', 'REGEXP', $findByIDs)
+      ->execute();
+  }
+
+  public function testPreferredCommunicationMethodNotContainsOneOfWithNull(): void {
+    $last_name = uniqid('pref_comm_test');
+
+    $c1 = $this->createTestRecord('Contact', [
+      'first_name' => 'HasPhone',
+      'last_name' => $last_name,
+      'preferred_communication_method' => ['Phone'],
+    ]);
+
+    $c2 = $this->createTestRecord('Contact', [
+      'first_name' => 'HasEmailMail',
+      'last_name' => $last_name,
+      'preferred_communication_method' => ['Email', 'Mail'],
+    ]);
+
+    $c3 = $this->createTestRecord('Contact', [
+      'first_name' => 'HasNull',
+      'last_name' => $last_name,
+      'preferred_communication_method' => NULL,
+    ]);
+
+    $result = Contact::get(FALSE)
+      ->addWhere('last_name', '=', $last_name)
+      ->addWhere('preferred_communication_method', 'NOT CONTAINS ONE OF', ['Email', 'Mail'])
+      ->execute()
+      ->indexBy('id');
+
+    $this->assertArrayHasKey($c1['id'], $result);
+    $this->assertArrayHasKey($c3['id'], $result);
+    $this->assertCount(2, $result);
   }
 
   public function testGetRelatedWithSubType(): void {
@@ -383,6 +493,23 @@ class ContactGetTest extends Api4TestBase implements TransactionalInterface {
       ->execute();
   }
 
+  public function testCompareWithHaving(): void {
+    $same = $this->createTestRecord('Individual', [
+      'first_name' => 'Hi 😁',
+      'last_name' => 'Hi 😁',
+    ]);
+    $diff = $this->createTestRecord('Individual', [
+      'first_name' => 'Hi 😁',
+      'last_name' => 'Hi ☹️',
+    ]);
+    $result = Individual::get(FALSE)
+      ->addWhere('first_name', '=', 'Hi 😁')
+      ->addHaving('first_name', '=', 'last_name', TRUE)
+      ->execute()->column('first_name', 'id');
+    $this->assertEquals('Hi 😁', $result[$same['id']]);
+    $this->assertArrayNotHasKey($diff['id'], $result);
+  }
+
   public function testAge(): void {
     $lastName = uniqid(__FUNCTION__);
     $sampleData = [
@@ -396,9 +523,19 @@ class ContactGetTest extends Api4TestBase implements TransactionalInterface {
       ->addWhere('last_name', '=', $lastName)
       ->addSelect('first_name', 'age_years', 'next_birthday', 'DAYSTOANNIV(birth_date)')
       ->execute()->indexBy('first_name');
+
+    $adjustForLeapYear = 0;
+    if ((date('m') === '02') && (date('d') === '26' || date('d') === '27' || date('d') === '28' || date('d') === '29')) {
+      if ((new \IntlGregorianCalendar())->isLeapYear(date('Y'))) {
+        $adjustForLeapYear = 1;
+      }
+      elseif ((new \IntlGregorianCalendar())->isLeapYear((int) date('Y') - 2)) {
+        $adjustForLeapYear = -1;
+      }
+    }
     $this->assertEquals(1, $result['abc']['age_years']);
-    $this->assertEquals(3, $result['abc']['next_birthday']);
-    $this->assertEquals(3, $result['abc']['DAYSTOANNIV:birth_date']);
+    $this->assertEquals(3 + $adjustForLeapYear, $result['abc']['next_birthday']);
+    $this->assertEquals(3 + $adjustForLeapYear, $result['abc']['DAYSTOANNIV:birth_date']);
     $this->assertEquals(21, $result['def']['age_years']);
     $this->assertEquals(0, $result['ghi']['age_years']);
     $this->assertEquals(0, $result['ghi']['next_birthday']);
@@ -538,6 +675,12 @@ class ContactGetTest extends Api4TestBase implements TransactionalInterface {
       $this->assertStringContainsString("`contact`.`contact_type` = \"$contactType\"", $get->debug['sql'][0]);
       $this->assertCount($count, $get);
     }
+  }
+
+  public function testContactImageURLNotEncoded(): void {
+    $cid = $this->createTestRecord('Contact', ['last_name' => uniqid(__FUNCTION__), 'image_URL' => 'http://joomla-empty/index.php?option=com_civicrm&amp;task=civicrm/contact/imagefile&amp;photo=image000001_22d61d381164e043bbed2dd014f0ab2c.jpg']);
+    $get = Contact::get(FALSE)->addWhere('id', '=', $cid['id'])->execute()->first();
+    $this->assertEquals('http://joomla-empty/index.php?option=com_civicrm&task=civicrm/contact/imagefile&photo=image000001_22d61d381164e043bbed2dd014f0ab2c.jpg', $get['image_URL']);
   }
 
 }

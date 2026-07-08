@@ -1,6 +1,7 @@
 <?php
 namespace Civi\OAuth;
 
+use Civi;
 use League\OAuth2\Client\Token\AccessToken;
 
 /**
@@ -21,10 +22,34 @@ use League\OAuth2\Client\Token\AccessToken;
  */
 class CiviGenericProvider extends \League\OAuth2\Client\Provider\GenericProvider {
 
+  use ResponseModeTrait;
+  use CiviConnectUrlTrait;
+
   /**
    * @var string
    */
   protected $tenant;
+
+  /**
+   * @var string
+   */
+  protected $url;
+
+  /**
+   * @var string
+   */
+  protected $realm;
+
+  protected function fillProperties(array $options = []) {
+    // If this client is generated for CiviConnect bridge, then swap the credentials.
+    $needClient = ($options['clientId'] ?? NULL) === '{civi_connect}';
+    $needSecret = ($options['clientSecret'] ?? NULL) === '{civi_connect}';
+    if ($needClient && $needSecret) {
+      [$options['clientId'], $options['clientSecret']] = Civi::service('oauth_client.civi_connect')->getCreds();
+    }
+
+    parent::fillProperties($options);
+  }
 
   protected function getAuthorizationParameters(array $options) {
     $newOptions = parent::getAuthorizationParameters($options);
@@ -45,7 +70,7 @@ class CiviGenericProvider extends \League\OAuth2\Client\Provider\GenericProvider
    */
   public function getBaseAuthorizationUrl() {
     $url = parent::getBaseAuthorizationUrl();
-    return $this->replaceTenantToken($url);
+    return $this->replaceUrlToken($url);
   }
 
   /**
@@ -58,20 +83,35 @@ class CiviGenericProvider extends \League\OAuth2\Client\Provider\GenericProvider
    */
   public function getBaseAccessTokenUrl(array $params) {
     $url = parent::getBaseAccessTokenUrl($params);
-    return $this->replaceTenantToken($url);
+    return $this->replaceUrlToken($url);
   }
 
   /**
-   * Replace {{tenant}} in the endpoint URLs with 'common' for consumer accounts
-   * or the tenancy ID for dedicated services.
+   * Replaces the following tokens in the end point url
+   *
+   * {{tenant}} 'common' for consumer accounts or the configured tenancy ID
+   * {{url}} configured URL
+   * {{realm}} configured Realm
    *
    * @param string $str URL to replace
    * @return string
    */
-  private function replaceTenantToken($str) {
-    if (strpos($str, '{{tenant}}') !== FALSE) {
+  private function replaceUrlToken($str) {
+    if (str_contains($str, '{{tenant}}')) {
       $tenant = !empty($this->tenant) ? $this->tenant : 'common';
       $str = str_replace('{{tenant}}', $tenant, $str);
+    }
+    if (str_contains($str, '{{url}}')) {
+      $url = !empty($this->url) ? $this->url : '';
+      if (str_ends_with($url, '/')) {
+        // Remove the ending slash
+        $url = substr($url, 0, -1);
+      }
+      $str = str_replace('{{url}}', $url, $str);
+    }
+    if (str_contains($str, '{{realm}}')) {
+      $realm = !empty($this->realm) ? $this->realm : 'master';
+      $str = str_replace('{{realm}}', $realm, $str);
     }
     return $str;
   }

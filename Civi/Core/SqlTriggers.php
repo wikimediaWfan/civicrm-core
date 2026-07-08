@@ -76,6 +76,11 @@ class SqlTriggers extends \Civi\Core\Service\AutoService {
     }
 
     $triggers = [];
+    $existingTables = [];
+    foreach (\CRM_Core_DAO::executeQuery('SHOW TABLES')->fetchAll() as $table) {
+      $tableName = reset($table);
+      $existingTables[$tableName] = $tableName;
+    };
 
     // now enumerate the tables and the events and collect the same set in a different format
     foreach ($info as $value) {
@@ -87,6 +92,7 @@ class SqlTriggers extends \Civi\Core\Service\AutoService {
         isset($value['when']) == FALSE ||
         isset($value['sql']) == FALSE
       ) {
+        \CRM_Core_Error::deprecatedWarning('malformed triggers are deprecated');
         continue;
       }
 
@@ -95,6 +101,13 @@ class SqlTriggers extends \Civi\Core\Service\AutoService {
       }
       else {
         $tables = $value['table'];
+      }
+
+      foreach ($tables as $table) {
+        if (empty($existingTables[$table])) {
+          \Civi::log()->warning('trigger on non-existent table ' . $table);
+          continue 2;
+        }
       }
 
       if (is_string($value['event']) == TRUE) {
@@ -159,11 +172,11 @@ class SqlTriggers extends \Civi\Core\Service\AutoService {
       }
       foreach ($tables as $eventName => $events) {
         foreach ($events as $whenName => $parts) {
-          $varString = implode("\n", $parts['variables']);
-          $sqlString = implode("\n", $parts['sql']);
+          $varString = ' ' . implode("\n", $parts['variables']);
+          $sqlString = ' ' . implode("\n", $parts['sql']);
           $validName = \CRM_Core_DAO::shortenSQLName($tableName, 48, TRUE);
           $triggerName = "{$validName}_{$whenName}_{$eventName}";
-          $triggerSQL = "CREATE TRIGGER $triggerName $whenName $eventName ON $tableName FOR EACH ROW BEGIN $varString $sqlString END";
+          $triggerSQL = "CREATE TRIGGER $triggerName $whenName $eventName ON $tableName FOR EACH ROW BEGIN{$varString}{$sqlString} END";
 
           $this->enqueueQuery("DROP TRIGGER IF EXISTS $triggerName");
           $this->enqueueQuery($triggerSQL);
@@ -205,11 +218,12 @@ class SqlTriggers extends \Civi\Core\Service\AutoService {
       if (!file_exists($this->getFile())) {
         // Ugh. Need to let user know somehow. This is the first change.
         \CRM_Core_Session::setStatus(ts('The mysql commands you need to run are stored in %1', [
-          1 => $this->getFile(),
+          1 => htmlentities($this->getFile()),
         ]),
           '',
           'alert',
-          ['expires' => 0]
+          ['expires' => 0],
+          purify: FALSE
         );
       }
       $query = \CRM_Core_DAO::composeQuery($triggerSQL, $params);
@@ -250,7 +264,7 @@ class SqlTriggers extends \Civi\Core\Service\AutoService {
     if (!empty($this->enqueuedQueries) && $this->getFile()) {
       $buf = "DELIMITER //\n";
       foreach ($this->enqueuedQueries as $query) {
-        if (strpos($query, 'CREATE TRIGGER') === 0) {
+        if (str_starts_with($query, 'CREATE TRIGGER')) {
           // The create triggers are long so put spaces between them. For the drops
           // condensed is more readable.
           $buf .= "\n";

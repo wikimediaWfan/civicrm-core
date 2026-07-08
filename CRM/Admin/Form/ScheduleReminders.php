@@ -25,10 +25,41 @@ class CRM_Admin_Form_ScheduleReminders extends CRM_Admin_Form {
   protected $retrieveMethod = 'api4';
 
   /**
+   * Temporary override to solve https://lab.civicrm.org/dev/core/-/issues/4971
+   * This regressed in https://github.com/civicrm/civicrm-core/pull/27003 which
+   * switched $this->retrieveMethod to 'api' - this had the unintended effect of checking
+   * permissions during retrieveValues(), but the API is not sophisticated enough: we need to add
+   * a `CRM_Core_BAO_ActionSchedule::addSelectWhereClause()` function that can handle the logic
+   * of "if the reminder is for an event, check user has edit permission for that specific event".
+   *
+   * Meanwhile we can skip permission checks in the form layer, because that logic is implemented here,
+   * specifically in `\CRM_Event_ActionMapping::checkAccess()`.
+   *
+   * @return array
+   */
+  protected function retrieveValues(): array {
+    $this->_values = [];
+    if (isset($this->_id) && CRM_Utils_Rule::positiveInteger($this->_id)) {
+      $this->_values = civicrm_api4($this->getDefaultEntity(), 'get', [
+        'checkPermissions' => FALSE,
+        'where' => [['id', '=', $this->_id]],
+      ])->single();
+    }
+    return $this->_values;
+  }
+
+  /**
    * @return string
    */
   public function getDefaultEntity(): string {
     return 'ActionSchedule';
+  }
+
+  /**
+   * @return array
+   */
+  protected function getFieldsToExcludeFromPurification(): array {
+    return ['body_html', 'html_message'];
   }
 
   /**
@@ -49,11 +80,13 @@ class CRM_Admin_Form_ScheduleReminders extends CRM_Admin_Form {
   public function preProcess() {
     parent::preProcess();
     // Pre-selected mapping_id and entity_value for embedded forms
-    if (CRM_Utils_Request::retrieve('mapping_id', 'Alphanumeric', $this, FALSE, NULL, 'GET')) {
-      $this->_values['mapping_id'] = $this->get('mapping_id');
-    }
-    if (CRM_Utils_Request::retrieve('entity_value', 'CommaSeparatedIntegers', $this, FALSE, NULL, 'GET')) {
-      $this->_values['entity_value'] = explode(',', $this->get('entity_value'));
+    if (!$this->_id) {
+      if (CRM_Utils_Request::retrieve('mapping_id', 'Alphanumeric', $this, FALSE, NULL, 'GET')) {
+        $this->_values['mapping_id'] = $this->get('mapping_id');
+      }
+      if (CRM_Utils_Request::retrieve('entity_value', 'CommaSeparatedIntegers', $this, FALSE, NULL, 'GET')) {
+        $this->_values['entity_value'] = explode(',', $this->get('entity_value'));
+      }
     }
     if (!empty($this->_values['mapping_id'])) {
       $mapping = CRM_Core_BAO_ActionSchedule::getMapping($this->_values['mapping_id']);
@@ -124,23 +157,25 @@ class CRM_Admin_Form_ScheduleReminders extends CRM_Admin_Form {
     $this->addField('repetition_frequency_unit', ['placeholder' => FALSE])->setAttribute('class', 'crm-form-select');
     $this->addField('end_frequency_unit', ['placeholder' => FALSE])->setAttribute('class', 'crm-form-select');
     // Data for js pluralization
+    // Don't want to include 'minute' option as not supported by RecipientBuilder::parseRepetitionInterval()
+    $excludeFrequencyOptions = ['minute' => NULL];
     $this->assign('recurringFrequencyOptions', [
-      'plural' => CRM_Utils_Array::makeNonAssociative(CRM_Core_SelectValues::getRecurringFrequencyUnits(2)),
-      'single' => CRM_Utils_Array::makeNonAssociative(CRM_Core_SelectValues::getRecurringFrequencyUnits()),
+      'plural' => CRM_Utils_Array::makeNonAssociative(array_diff_key(CRM_Core_SelectValues::getRecurringFrequencyUnits(2), $excludeFrequencyOptions)),
+      'single' => CRM_Utils_Array::makeNonAssociative(array_diff_key(CRM_Core_SelectValues::getRecurringFrequencyUnits(), $excludeFrequencyOptions)),
     ]);
 
     $this->addField('title', [], TRUE);
     $this->addField('absolute_date', [], FALSE, FALSE);
     $this->addField('start_action_offset', ['class' => 'four']);
     $this->addField('start_action_condition', ['placeholder' => FALSE])->setAttribute('class', 'crm-form-select');
-    $this->addField('record_activity', ['type' => 'advcheckbox']);
-    $this->addField('is_repeat', ['type' => 'advcheckbox']);
+    $this->addField('record_activity');
+    $this->addField('is_repeat');
     $this->addField('repetition_frequency_interval', ['label' => ts('Every'), 'class' => 'four']);
     $this->addField('end_frequency_interval', ['label' => ts('Until'), 'class' => 'four']);
     $this->addField('end_action', ['placeholder' => FALSE])->setAttribute('class', 'crm-form-select');
     $this->addField('effective_start_date', ['label' => ts('Effective From')], FALSE, FALSE);
     $this->addField('effective_end_date', ['label' => ts('To')], FALSE, FALSE);
-    $this->addField('is_active', ['type' => 'advcheckbox']);
+    $this->addField('is_active', ['on' => ts('On'), 'off' => ts('Off')]);
     $this->addAutocomplete('recipient_manual', ts('Manual Recipients'), ['select' => ['multiple' => TRUE]]);
     $this->addAutocomplete('group_id', ts('Group'), ['entity' => 'Group', 'select' => ['minimumInputLength' => 0]]);
 
@@ -153,7 +188,7 @@ class CRM_Admin_Form_ScheduleReminders extends CRM_Admin_Form {
     $this->add('select', 'absolute_or_relative_date', ts('When (trigger date)'), ['relative' => ts('Relative Date'), 'absolute' => ts('Choose Date')], TRUE);
 
     // SMS-only fields
-    $providersCount = CRM_SMS_BAO_Provider::activeProviderCount();
+    $providersCount = CRM_SMS_BAO_SmsProvider::activeProviderCount();
     $this->assign('sms', $providersCount);
     if ($providersCount) {
       $this->addField('mode', ['placeholder' => FALSE, 'option_url' => FALSE], TRUE)->setAttribute('class', 'crm-form-select');
@@ -164,8 +199,10 @@ class CRM_Admin_Form_ScheduleReminders extends CRM_Admin_Form {
     $multilingual = CRM_Core_I18n::isMultilingual();
     $this->assign('multilingual', $multilingual);
     if ($multilingual) {
-      $this->addField('filter_contact_language', ['placeholder' => ts('Any language')]);
-      $this->addField('communication_language', ['placeholder' => 'System default language']);
+      $filterLanguages = \CRM_Core_BAO_ActionSchedule::getFilterContactLanguageOptions();
+      $this->addField('filter_contact_language', ['placeholder' => ts('Any language'), 'options' => $filterLanguages]);
+      $communicationLanguages = \CRM_Core_BAO_ActionSchedule::getCommunicationLanguageOptions();
+      $this->addField('communication_language', ['placeholder' => 'System default language', 'options' => $communicationLanguages]);
     }
 
     // Message fields
@@ -220,6 +257,9 @@ class CRM_Admin_Form_ScheduleReminders extends CRM_Admin_Form {
     }
     else {
       unset($errors['absolute_date']);
+      if (($values['start_action_date'] == 'next_sched_contribution_date') && (!in_array('2', $values['entity_status']) || count($values['entity_status']) != 1)) {
+        $errors['start_action_date'] = ts('Membership Auto-Renewal Date can only work with Auto-renewal Memberships');
+      }
     }
 
     return $errors ?: TRUE;
@@ -295,10 +335,10 @@ class CRM_Admin_Form_ScheduleReminders extends CRM_Admin_Form {
 
     // Absolute or relative date
     if ($values['absolute_or_relative_date'] === 'absolute') {
-      $values['start_action_offset'] = $values['start_action_unit'] = $values['start_action_condition'] = $values['start_action_date'] = NULL;
+      $values['start_action_offset'] = $values['start_action_unit'] = $values['start_action_condition'] = $values['start_action_date'] = '';
     }
     else {
-      $values['absolute_date'] = NULL;
+      $values['absolute_date'] = '';
     }
 
     // Convert values for the fields added by CRM_Mailing_BAO_Mailing::commonCompose
@@ -346,7 +386,7 @@ class CRM_Admin_Form_ScheduleReminders extends CRM_Admin_Form {
         }
         $templateParams['id'] = $params[$prefix . 'template'];
 
-        $msgTemplate = CRM_Core_BAO_MessageTemplate::add($templateParams);
+        $msgTemplate = CRM_Core_BAO_MessageTemplate::writeRecord($templateParams);
       }
 
       // Save new template
@@ -367,7 +407,7 @@ class CRM_Admin_Form_ScheduleReminders extends CRM_Admin_Form {
         }
         $templateParams['msg_title'] = $params[$prefix . 'saveTemplateName'];
 
-        $msgTemplate = CRM_Core_BAO_MessageTemplate::add($templateParams);
+        $msgTemplate = CRM_Core_BAO_MessageTemplate::writeRecord($templateParams);
       }
 
       if (isset($msgTemplate->id)) {

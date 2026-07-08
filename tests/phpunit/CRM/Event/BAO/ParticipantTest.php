@@ -16,9 +16,16 @@
  */
 class CRM_Event_BAO_ParticipantTest extends CiviUnitTestCase {
 
+  /**
+   * API version in use.
+   *
+   * @var int
+   */
+  protected $_apiversion = 4;
+
   public function setUp(): void {
     parent::setUp();
-    $this->ids['Contact']['individual_0'] = $this->individualCreate();
+    $this->individualCreate();
     $this->eventCreateUnpaid();
   }
 
@@ -69,9 +76,6 @@ class CRM_Event_BAO_ParticipantTest extends CiviUnitTestCase {
     $this->assertDBCompareValue('CRM_Event_BAO_Participant', $updatedParticipant->id, 'status_id',
       'id', 3, 'Check DB for updated status id  of the participant'
     );
-
-    $this->contactDelete($this->ids['Contact']['individual_0']);
-    $this->eventDelete($this->getEventID());
   }
 
   /**
@@ -86,14 +90,13 @@ class CRM_Event_BAO_ParticipantTest extends CiviUnitTestCase {
     $compareValues = $fetchParticipant[$participantID];
 
     $params = [
-      'send_receipt' => 1,
       'is_test' => 0,
       'is_pay_later' => 0,
       'event_id' => $this->getEventID(),
       'register_date' => '2007-02-19 00:00:00',
       'role_id' => 1,
       'status_id' => 2,
-      'source' => 'Wimbeldon',
+      'source' => 'Wimbledon',
       'contact_id' => $this->ids['Contact']['individual_0'],
       'id' => $participantID,
       'campaign_id' => NULL,
@@ -103,21 +106,23 @@ class CRM_Event_BAO_ParticipantTest extends CiviUnitTestCase {
       'discount_id' => NULL,
       'fee_currency' => NULL,
       'discount_amount' => NULL,
-      'cart_id' => NULL,
       'must_wait' => NULL,
       'transferred_to_contact_id' => NULL,
       'created_id' => $this->ids['Contact']['individual_0'],
     ];
 
-    foreach ($compareValues as $key => $value) {
-      if ($key[0] !== '_' && $key !== 'N') {
-        $this->assertEquals($compareValues->$key, $params[$key], 'Check for ' . $key . ' for given participant');
-      }
+    $dateParams = [
+      'created_date',
+      'modified_date',
+    ];
+
+    foreach ($dateParams as $key) {
+      $this->assertEqualsWithDelta(time(), strtotime($compareValues->$key), 2, 'Check for ' . $key . ' for given participant');
     }
 
-    $this->participantDelete($participantID);
-    $this->contactDelete($this->ids['Contact']['individual_0']);
-    $this->eventDelete($this->getEventID());
+    foreach ($params as $key => $value) {
+      $this->assertEquals($compareValues->$key, $value, 'Check for ' . $key . ' for given participant');
+    }
   }
 
   /**
@@ -134,31 +139,15 @@ class CRM_Event_BAO_ParticipantTest extends CiviUnitTestCase {
    * EventFull() method (checking the event for full).
    */
   public function testEventFull(): void {
-    $eventParams = [
+    $this->callAPISuccess('Event', 'update', [
       'max_participants' => 1,
       'id' => $this->getEventID(),
-    ];
-    CRM_Event_BAO_Event::add($eventParams);
+    ]);
 
-    $participantId = $this->participantCreate(['contact_id' => $this->ids['Contact']['individual_0'], 'event_id' => $this->getEventID()]);
+    $this->participantCreate(['contact_id' => $this->ids['Contact']['individual_0'], 'event_id' => $this->getEventID()]);
     $eventFull = CRM_Event_BAO_Participant::eventFull($this->getEventID());
 
     $this->assertEquals('Sorry! We are already full', $eventFull, 'Checking if Event is full.');
-
-    $this->participantDelete($participantId);
-    $this->contactDelete($this->ids['Contact']['individual_0']);
-    $this->eventDelete($this->getEventID());
-  }
-
-  /**
-   * ImportableFields() method ( Checking the Event's Importable Fields )
-   */
-  public function testImportableFields(): void {
-    $importableFields = CRM_Event_BAO_Participant::importableFields();
-    $this->assertNotCount(0, $importableFields, 'Checking array not to be empty.');
-
-    $this->contactDelete($this->ids['Contact']['individual_0']);
-    $this->eventDelete($this->getEventID());
   }
 
   /**
@@ -173,17 +162,13 @@ class CRM_Event_BAO_ParticipantTest extends CiviUnitTestCase {
     $this->assertCount(3, $participantDetails, 'Equating the array contains.');
     $this->assertEquals($participantDetails['name'], $params['name'], 'Checking Name of Participant.');
     $this->assertEquals($participantDetails['title'], $params['title'], 'Checking Event Title in which participant is enrolled.');
-
-    $this->participantDelete($participant['id']);
-    $this->contactDelete($this->ids['Contact']['individual_0']);
-    $this->eventDelete($this->getEventID());
   }
 
   /**
    * DeleteParticipant() method.
    */
   public function testDeleteParticipant(): void {
-    $params = [
+    $this->createTestEntity('Participant', [
       'send_receipt' => 1,
       'is_test' => 0,
       'is_pay_later' => 0,
@@ -193,24 +178,9 @@ class CRM_Event_BAO_ParticipantTest extends CiviUnitTestCase {
       'status_id' => 1,
       'source' => 'Event_' . $this->getEventID(),
       'contact_id' => $this->ids['Contact']['individual_0'],
-    ];
-
-    // New Participant Created
-    $participant = CRM_Event_BAO_Participant::add($params);
-
-    $this->assertDBNotNull('CRM_Event_BAO_Participant', $this->ids['Contact']['individual_0'], 'id',
-      'contact_id', 'Check DB for Participant of the contact'
-    );
-
-    $this->assertDBCompareValue('CRM_Event_BAO_Participant', $participant->id, 'contact_id',
-      'id', $this->ids['Contact']['individual_0'], 'Check DB for contact of the participant'
-    );
-
-    CRM_Event_BAO_Participant::deleteParticipant($participant->id);
-    $this->assertDBNull('CRM_Event_BAO_Participant', $participant->id, 'contact_id', 'id', 'Check DB for deleted Participant.');
-
-    $this->contactDelete($this->ids['Contact']['individual_0']);
-    $this->eventDelete($this->getEventID());
+    ]);
+    CRM_Event_BAO_Participant::deleteParticipant($this->ids['Participant']['default']);
+    $this->assertDBNull('CRM_Event_BAO_Participant', $this->ids['Participant']['default'], 'contact_id', 'id', 'Check DB for deleted Participant.');
   }
 
   /**
@@ -292,15 +262,6 @@ class CRM_Event_BAO_ParticipantTest extends CiviUnitTestCase {
     //Checking for participant contact_id added to activity target.
     $params_activity = ['contact_id' => $this->ids['Contact']['individual_0'], 'record_type_id' => 3];
     $this->assertDBCompareValues('CRM_Activity_DAO_ActivityContact', $params_activity, $params_activity);
-
-    //Deleting the Participant created by create function in this function
-    CRM_Event_BAO_Participant::deleteParticipant($participant->id);
-    $this->assertDBNull('CRM_Event_DAO_Participant', $this->ids['Contact']['individual_0'], 'id',
-      'contact_id', 'Check DB for deleted participant. Should be NULL.'
-    );
-
-    $this->contactDelete($this->ids['Contact']['individual_0']);
-    $this->eventDelete($this->getEventID());
   }
 
   /**
@@ -309,9 +270,6 @@ class CRM_Event_BAO_ParticipantTest extends CiviUnitTestCase {
   public function testExportableFields(): void {
     $exportableFields = CRM_Event_BAO_Participant::exportableFields();
     $this->assertNotCount(0, $exportableFields, 'Checking array not to be empty.');
-
-    $this->contactDelete($this->ids['Contact']['individual_0']);
-    $this->eventDelete($this->getEventID());
   }
 
   /**
@@ -335,7 +293,7 @@ class CRM_Event_BAO_ParticipantTest extends CiviUnitTestCase {
    * @param bool $isBackOffice
    * @param bool $successExpected  A boolean that indicates whether this test should pass or fail.
    */
-  public function testGetSelfServiceEligibility(int $selfSvcEnabled, int $selfSvcHours, $hoursToEvent, $participantStatusID, bool $isBackOffice, bool $successExpected): void {
+  public function testGetSelfServiceEligibility(int $selfSvcEnabled, int $selfSvcHours, int $hoursToEvent, int $participantStatusID, bool $isBackOffice, bool $successExpected): void {
     $participantId = $this->participantCreate(['contact_id' => $this->ids['Contact']['individual_0'], 'event_id' => $this->getEventID(), 'status_id' => $participantStatusID]);
     $now = new Datetime();
     if ($hoursToEvent >= 0) {
@@ -356,7 +314,7 @@ class CRM_Event_BAO_ParticipantTest extends CiviUnitTestCase {
     $this->assertEquals($details['eligible'], $successExpected);
   }
 
-  public function selfServiceScenarios(): array {
+  public static function selfServiceScenarios(): array {
     // Standard pass scenario
     $scenarios[] = [
       'selfSvcEnabled' => 1,

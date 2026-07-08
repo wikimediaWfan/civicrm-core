@@ -80,9 +80,9 @@ class CRM_Utils_Mail_EmailProcessor {
   private static function _process($civiMail, $dao, $is_create_activities) {
     // 0 = activities; 1 = bounce;
     $isBounceProcessing = $dao->is_default;
-    $targetFields = array_filter(explode(',', $dao->activity_targets));
-    $assigneeFields = array_filter(explode(",", $dao->activity_assignees));
-    $sourceFields = array_filter(explode(",", $dao->activity_source));
+    $targetFields = array_filter(explode(',', (string) $dao->activity_targets));
+    $assigneeFields = array_filter(explode(",", (string) $dao->activity_assignees));
+    $sourceFields = array_filter(explode(",", (string) $dao->activity_source));
     // create an array of all of to, from, cc, bcc that are in use for this Mail Account, so we don't create contacts for emails we aren't adding to the activity.
     $emailFields = array_merge($targetFields, $assigneeFields, $sourceFields);
     $createContact = !($dao->is_contact_creation_disabled_if_no_match) && !$isBounceProcessing;
@@ -195,23 +195,14 @@ class CRM_Utils_Mail_EmailProcessor {
                 }
               }
             }
-            // @todo the IncomingMail class should have `getAttachments` - retrieving from
-            // the email & moving to the file system should be separate to formatting
-            // array for api
-            $numAttachments = Civi::settings()->get('max_attachments_backend') ?? CRM_Core_BAO_File::DEFAULT_MAX_ATTACHMENTS_BACKEND;
-            for ($i = 1; $i <= $numAttachments; $i++) {
-              if (isset($mailParams["attachFile_$i"])) {
-                $activityParams["attachFile_$i"] = $mailParams["attachFile_$i"];
-              }
-              else {
-                // No point looping 100 times if there's only one attachment
-                break;
-              }
-            }
 
             $result = civicrm_api3('Activity', 'create', $activityParams);
+
+            // Attach mailing attachments to the activity.
+            CRM_Core_BAO_File::processAttachment($mailParams, 'civicrm_activity', $result['id']);
+
             $matches = TRUE;
-            CRM_Utils_Hook::emailProcessor('activity', $activityParams, $mail, $result);
+            CRM_Utils_Hook::emailProcessor('activity', $activityParams, $mail, $result, NULL, $dao->id);
             echo "Processed as Activity: {$mail->subject}\n";
           }
           catch (Exception $e) {
@@ -239,7 +230,7 @@ class CRM_Utils_Mail_EmailProcessor {
 
         // get $replyTo from either the Reply-To header or from From
         // FIXME: make sure it works with Reply-Tos containing non-email stuff
-        $replyTo = $mail->getHeader('Reply-To') ? $mail->getHeader('Reply-To') : ($mail->from ? $mail->from->email : "");
+        $replyTo = $mail->getHeader('Reply-To') ?: ($mail->from ? $mail->from->email : "");
 
         // handle the action by passing it to the proper API call
         if (!empty($action)) {
@@ -337,7 +328,7 @@ class CRM_Utils_Mail_EmailProcessor {
             echo "Failed Processing: {$mail->subject}, Action: $action, Job ID: $job, Queue ID: $queue, Hash: $hash. Reason: {$result['error_message']}\n";
           }
           else {
-            CRM_Utils_Hook::emailProcessor('mailing', $activityParams, $mail, $result, $action);
+            CRM_Utils_Hook::emailProcessor('mailing', $activityParams, $mail, $result, $action, $dao->id);
           }
         }
 

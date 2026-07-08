@@ -44,6 +44,8 @@ class CRM_Admin_Form_PaymentProcessor extends CRM_Admin_Form {
    */
   private $_fields;
 
+  private $_initiators = [];
+
   /**
    * Set entity fields to be assigned to the form.
    */
@@ -52,6 +54,9 @@ class CRM_Admin_Form_PaymentProcessor extends CRM_Admin_Form {
       'payment_processor_type_id' => [
         'name' => 'payment_processor_type_id',
         'required' => TRUE,
+        // This is being double added - perhaps we can fix but for now....
+        // dev/core#5266
+        'not-auto-addable' => TRUE,
       ],
       'title' => [
         'name' => 'title',
@@ -104,6 +109,10 @@ class CRM_Admin_Form_PaymentProcessor extends CRM_Admin_Form {
     $this->assign('refreshURL', $this->getRefreshURL());
 
     $this->assign('is_recur', $this->_paymentProcessorDAO->is_recur);
+
+    // The list here is loosely redundant with $this->_fields, except that several parts of $this->_fields are conditioned on extant data.
+    $this->assign('liveFieldNames', ['user_name', 'password', 'signature', 'subject', 'url_site', 'url_api', 'url_recur', 'url_button']);
+    $this->assign('testFieldNames', array_map(fn($f) => "test_$f", $this->getTemplateVars('liveFieldNames')));
 
     $this->_fields = [
       [
@@ -181,10 +190,19 @@ class CRM_Admin_Form_PaymentProcessor extends CRM_Admin_Form {
       CRM_Financial_BAO_PaymentProcessor::buildOptions('payment_processor_type_id'),
       TRUE
     );
+    if ($this->_action !== CRM_Core_Action::ADD) {
+      $this->freeze('payment_processor_type_id');
+    }
 
     // Financial Account of account type asset CRM-11515
     $accountType = CRM_Core_PseudoConstant::accountOptionValues('financial_account_type', NULL, " AND v.name = 'Asset' ");
-    $financialAccount = CRM_Contribute_PseudoConstant::financialAccount(NULL, key($accountType));
+    $financialAccount = \Civi\Api4\FinancialAccount::get(FALSE)
+      ->addSelect('id', 'label')
+      ->addWhere('financial_account_type_id', '=', key($accountType))
+      ->addWhere('is_active', '=', TRUE)
+      ->addOrderBy('label')
+      ->execute()
+      ->column('label', 'id');
     if ($fcount = count($financialAccount)) {
       $this->assign('financialAccount', $fcount);
     }
@@ -226,7 +244,21 @@ class CRM_Admin_Form_PaymentProcessor extends CRM_Admin_Form {
       }
     }
 
-    $this->addFormRule(['CRM_Admin_Form_PaymentProcessor', 'formRule']);
+    $this->addFormRule([$this, 'formRule']);
+
+    $typeName = $this->_paymentProcessorDAO->name;
+    Civi::resources()->addScriptFile('civicrm', 'js/crm.initiator.js');
+    $this->addInitiators('live_initiator', $typeName, $this->_id, FALSE);
+
+    if ($this->_id) {
+      $testId = CRM_Core_DAO::singleValueQuery('
+      SELECT test_p.id FROM civicrm_payment_processor test_p
+      INNER JOIN civicrm_payment_processor live_p ON test_p.name = live_p.name AND test_p.domain_id = live_p.domain_id AND test_p.id <> live_p.id
+      WHERE live_p.id = %1
+      LIMIT 1
+    ', [1 => [$this->_id, 'Positive']]);
+      $this->addInitiators('test_initiator', $typeName, $testId, TRUE);
+    }
   }
 
   /**
@@ -234,17 +266,24 @@ class CRM_Admin_Form_PaymentProcessor extends CRM_Admin_Form {
    *
    * @return array|bool
    */
-  public static function formRule($fields) {
+  public function formRule($fields) {
 
     // make sure that at least one of live or test is present
     // and we have at least name and url_site
     // would be good to make this processor specific
     $errors = [];
 
-    if (!(self::checkSection($fields, $errors) ||
-      self::checkSection($fields, $errors, 'test')
-    )
-    ) {
+    $typeName = $this->_paymentProcessorDAO->name;
+    $initiators = static::getInitiators($typeName, $this->_id, FALSE);
+
+    // If this PayProc requires the user to enter creds, then we'll require some creds.
+    // If this PayProc has an initiator, then it's better to let the user work through that.
+
+    if (empty($initiators->available) && !(
+        self::checkSection($fields, $errors)
+        ||
+        self::checkSection($fields, $errors, 'test')
+      )) {
       $errors['_qf_default'] = ts('You must have at least the test or live section filled');
     }
 
@@ -330,7 +369,7 @@ class CRM_Admin_Form_PaymentProcessor extends CRM_Admin_Form {
     $cards = json_decode(CRM_Core_DAO::getFieldValue('CRM_Financial_DAO_PaymentProcessor',
           $this->_id,
           'accepted_credit_cards'
-        ), TRUE);
+         ) ?? '', TRUE);
     $acceptedCards = [];
     if (!empty($cards)) {
       foreach ($cards as $card => $val) {
@@ -394,11 +433,11 @@ class CRM_Admin_Form_PaymentProcessor extends CRM_Admin_Form {
     if ($errors) {
       CRM_Core_Session::setStatus($errors, ts('Payment processor configuration invalid'), 'error');
       Civi::log()->error('Payment processor configuration invalid: ' . $errors);
-      CRM_Core_Session::singleton()->pushUserContext($this->getRefreshURL());
     }
     else {
       CRM_Core_Session::setStatus(ts('Payment processor %1 has been saved.', [1 => "<em>{$values['title']}</em>"]), ts('Saved'), 'success');
     }
+    CRM_Core_Session::singleton()->pushUserContext($this->getRefreshURL());
   }
 
   /**
@@ -411,11 +450,18 @@ class CRM_Admin_Form_PaymentProcessor extends CRM_Admin_Form {
    * @throws \CRM_Core_Exception
    */
   public function updatePaymentProcessor($values, $domainID, $test) {
-    if ($test) {
-      foreach (['user_name', 'password', 'signature', 'url_site', 'url_recur', 'url_api', 'url_button', 'subject'] as $field) {
-        $values[$field] = empty($values["test_{$field}"]) ? CRM_Utils_Array::value($field, $values) : $values["test_{$field}"];
+    // The $values array has mixed the fields for two different entities (eg "user_name"/"password" and "test_user_name"/"test_password").
+    //  We are going to call APIv4 PaymentProcessor.save() for -one- side only (live XOR test). Get the APIv4 fields we need.
+    $dualFields = ['user_name', 'password', 'signature', 'url_site', 'url_recur', 'url_api', 'url_button', 'subject'];
+    foreach ($dualFields as $field) {
+      if (isset($values["test_$field"])) {
+        if ($test) {
+          $values[$field] = $values["test_$field"];
+        }
+        unset($values["test_$field"]);
       }
     }
+
     if (!empty($values['accept_credit_cards'])) {
       $creditCards = [];
       $accptedCards = array_keys($values['accept_credit_cards']);
@@ -464,11 +510,8 @@ class CRM_Admin_Form_PaymentProcessor extends CRM_Admin_Form {
       $this->set('pp', $this->_paymentProcessorType);
     }
     else {
-      $paymentProcessorTypes = CRM_Core_PseudoConstant::get('CRM_Financial_DAO_PaymentProcessor', 'payment_processor_type_id', [
-        'labelColumn' => 'name',
-        'flip' => 1,
-      ]);
-      $this->_paymentProcessorType = CRM_Utils_Request::retrieve('pp', 'String', $this, FALSE, $paymentProcessorTypes['PayPal']);
+      $payPal = CRM_Core_PseudoConstant::getKey('CRM_Financial_DAO_PaymentProcessor', 'payment_processor_type_id', 'PayPal');
+      $this->_paymentProcessorType = CRM_Utils_Request::retrieve('pp', 'String', $this, FALSE, $payPal);
     }
   }
 
@@ -515,6 +558,28 @@ class CRM_Admin_Form_PaymentProcessor extends CRM_Admin_Form {
       $refreshURL .= "&civicrmDestination=$destination";
     }
     return $refreshURL;
+  }
+
+  protected function addInitiators(string $fieldName, ?string $typeName, ?int $id, bool $isTest): void {
+    $initiators = static::getInitiators($typeName, $id, $isTest);
+    if (!empty($initiators->available)) {
+      $list = array_map(fn($i) => CRM_Utils_Array::subset($i, ['title', 'url']), $initiators->available);
+      $this->assign("{$fieldName}_list", array_values($list));
+
+      $region = \CRM_Core_Region::instance($fieldName . '_region');
+      foreach ($initiators->available as $initiator) {
+        \Civi\Core\Resolver::singleton()->call($initiator['render'], [$region, $initiators->context, $initiator]);
+      }
+    }
+  }
+
+  protected static function getInitiators(?string $typeName, ?int $id, bool $isTest): \Civi\Connect\Initiators {
+    return \Civi\Connect\Initiators::create([
+      'for' => 'PaymentProcessor',
+      'is_test' => $isTest,
+      'payment_processor_type' => $typeName,
+      'payment_processor_id' => $id,
+    ]);
   }
 
 }

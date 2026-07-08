@@ -33,7 +33,7 @@ class CRM_Profile_Page_Router extends CRM_Core_Page {
       return NULL;
     }
 
-    $secondArg = CRM_Utils_Array::value(2, $args, '');
+    $secondArg = $args[2] ?? '';
 
     if ($secondArg == 'map') {
       $controller = new CRM_Core_Controller_Simple(
@@ -103,8 +103,10 @@ class CRM_Profile_Page_Router extends CRM_Core_Page {
     }
 
     if ($secondArg == 'view' || empty($secondArg)) {
-      $page = new CRM_Profile_Page_Listings();
-      return $page->run();
+      if (function_exists('legacyprofiles_civicrm_config')) {
+        $page = new CRM_Profile_Page_Listings();
+        return $page->run();
+      }
     }
 
     CRM_Utils_System::permissionDenied();

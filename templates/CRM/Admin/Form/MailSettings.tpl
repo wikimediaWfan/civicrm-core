@@ -36,7 +36,7 @@
       <tr class="crm-mail-settings-form-block-domain"><td class="label">{$form.domain.label}</td><td>{$form.domain.html}</td></tr>
       <tr><td class="label">&nbsp;</td><td class="description">{ts}Email address domain (the part after @).{/ts}</td></tr>
 
-      <tr class="crm-mail-settings-form-block-return_path"><td class="label">{$form.return_path.label}</td><td>{$form.return_path.html}</td><tr>
+      <tr class="crm-mail-settings-form-block-return_path"><td class="label">{$form.return_path.label} {help id='return_path'}</td><td>{$form.return_path.html}</td><tr>
       <tr><td class="label">&nbsp;</td><td class="description">{ts}Contents of the Return-Path header.{/ts}</td></tr>
 
       <tr class="crm-mail-settings-form-block-protocol"><td class="label">{$form.protocol.label}</td><td>{$form.protocol.html}</td></tr>
@@ -51,17 +51,17 @@
       <tr class="crm-mail-settings-form-block-is_default"><td class="label">{$form.is_default.label}</td><td>{$form.is_default.html}</td></tr>
       <tr><td class="label">&nbsp;</td><td class="description">{ts}How this mail account will be used. Only one box may be used for bounce processing. It will also be used as the envelope email when sending mass mailings.{/ts}</td></tr>
 
-      <tr class="crm-mail-settings-form-block-is_non_case_email_skipped"><td class="label">&nbsp;</td><td>{$form.is_non_case_email_skipped.html}{$form.is_non_case_email_skipped.label} {help id='is_non_case_email_skipped'}</td></tr>
+      <tr class="crm-mail-settings-form-block-is_non_case_email_skipped"><td class="label">{help id='is_non_case_email_skipped'}</td><td>{$form.is_non_case_email_skipped.html}{$form.is_non_case_email_skipped.label}</td></tr>
 
-      <tr class="crm-mail-settings-form-block-is_contact_creation_disabled_if_no_match"><td class="label">&nbsp;</td><td>{$form.is_contact_creation_disabled_if_no_match.html}{$form.is_contact_creation_disabled_if_no_match.label} {help id='is_contact_creation_disabled_if_no_match'}</td></tr>
+      <tr class="crm-mail-settings-form-block-is_contact_creation_disabled_if_no_match"><td class="label">{help id='is_contact_creation_disabled_if_no_match'}</td><td>{$form.is_contact_creation_disabled_if_no_match.html}{$form.is_contact_creation_disabled_if_no_match.label}</td></tr>
 
-      <tr class="crm-mail-settings-form-block-activity_type_id"><td class="label">{$form.activity_type_id.label} {help id='id-activity_type_id'}</td><td>{$form.activity_type_id.html}</td></tr>
+      <tr class="crm-mail-settings-form-block-activity_type_id"><td class="label">{$form.activity_type_id.label} {help id='activity_type_id'}</td><td>{$form.activity_type_id.html}</td></tr>
 
       <tr class="crm-mail-settings-form-block-activity_status"><td class="label">{$form.activity_status.label}</td><td>{$form.activity_status.html}</td></tr>
 
       {include file="CRM/Campaign/Form/addCampaignToComponent.tpl" campaignTrClass="crm-mail-settings-form-block-campaign_id"}
 
-      <tr class="crm-mail-settings-form-block-activity_source"><td class="label">{$form.activity_source.label} {help id='id-activity_source'}</td><td>{$form.activity_source.html}</td></tr>
+      <tr class="crm-mail-settings-form-block-activity_source"><td class="label">{$form.activity_source.label} {help id='activity_source'}</td><td>{$form.activity_source.html}</td></tr>
       <tr class="crm-mail-settings-form-block-activity_targets"><td class="label">{$form.activity_targets.label}</td><td>{$form.activity_targets.html}</td></tr>
       <tr class="crm-mail-settings-form-block-activity_assignees"><td class="label">{$form.activity_assignees.label}</td><td>{$form.activity_assignees.html}</td></tr>
 

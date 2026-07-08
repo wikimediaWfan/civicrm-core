@@ -13,11 +13,10 @@
 CRM.$(function($) {
   // Bind first click of accordion header to load crm-accordion-body with snippet
   // everything else is taken care of by crmAccordions()
-  $('.crm-search_criteria_basic-accordion .crm-accordion-header').addClass('active');
-  $('.crm-ajax-accordion').on('click', '.crm-accordion-header:not(.active)', function() {
+  $('.crm-ajax-accordion').on('click', 'summary:not(.active)', function() {
     loadPanes($(this).attr('id'));
   });
-  $('.crm-ajax-accordion:not(.collapsed) .crm-accordion-header').each(function() {
+  $('.crm-ajax-accordion:not(.collapsed) summary').each(function() {
     loadPanes($(this).attr('id'));
   });
   $('.crm-ajax-accordion').on('click', '.crm-close-accordion', function() {
@@ -46,7 +45,7 @@ CRM.$(function($) {
     $('#task').val('');
     var mode = modes[$('#component_mode').val()] || null;
     if (mode) {
-      $('.crm-' + mode + '-accordion.collapsed').crmAccordionToggle();
+      $('.crm-' + mode + '-accordion:not([open])').prop('open', true);
       loadPanes(mode);
     }
     if ('related_contact' === modes[$('#component_mode').val()]) {
@@ -66,7 +65,7 @@ CRM.$(function($) {
     var body = $('.crm-accordion-body.' + id);
     if (header.length > 0 && body.length > 0 && !body.html()) {
       body.html('<div class="crm-loading-element"><span class="loading-text">{/literal}{ts escape='js'}Loading{/ts}{literal}...</span></div>');
-      header.append('{/literal}<a href="#" class="crm-close-accordion crm-hover-button css_right" title="{ts escape='js'}Remove from search criteria{/ts}"><i class="crm-i fa-times" aria-hidden="true"></i></a>{literal}');
+      header.append('{/literal}<a href="#" class="crm-close-accordion crm-hover-button css_right" title="{ts escape='htmlattribute'}Remove from search criteria{/ts}"><i class="crm-i fa-times" role="img" aria-hidden="true"></i></a>{literal}');
       header.addClass('active');
       CRM.loadPage(url, {target: body, block: false});
     }
@@ -79,41 +78,46 @@ CRM.$(function($) {
 
 {if $context EQ 'smog' || $context EQ 'amtg' || !empty($savedSearch)}
   <h3>
-    {if $context EQ 'smog'}{ts}Find Contacts within this Group{/ts}
-    {elseif $context EQ 'amtg'}{ts}Find Contacts to Add to this Group{/ts}
-    {elseif !empty($savedSearch)}{ts 1=$savedSearch.name}%1 Smart Group Criteria{/ts} &nbsp; {help id='id-advanced-smart'}
+    {if $context EQ 'smog'}
+      {ts}Find Contacts within this Group{/ts}
+    {elseif $context EQ 'amtg'}
+      {ts}Find Contacts to Add to this Group{/ts}
+    {elseif !empty($savedSearch)}
+      {ts 1=$savedSearch.name}%1 Smart Group Criteria{/ts}
+      {capture assign='helpTitle'}{ts}Smart Group{/ts}{/capture}{help id='id-advanced-smart' title=$helpTitle}
     {/if}
   </h3>
 {/if}
 
 {strip}
-  <details class="crm-accordion-wrapper crm-search_criteria_basic-accordion" open>
-    <summary class="crm-accordion-header">
-      {ts}Display Settings For Results{/ts}
-    </summary>
-    <div class="crm-accordion-body">
-      {include file="CRM/Contact/Form/Search/Criteria/DisplaySettings.tpl"}
-    </div>
-  </details>
-  <details class="crm-accordion-wrapper crm-search_criteria_basic-accordion" open>
-    <summary class="crm-accordion-header">
+  <details id="crm-advsearch-settings-accordion" class="crm-accordion-settings crm-search_criteria_basic-accordion crm-accordion-sticky">
+    <summary>
       {ts}Search Settings{/ts}
     </summary>
     <div class="crm-accordion-body">
       {include file="CRM/Contact/Form/Search/Criteria/SearchSettings.tpl"}
     </div>
   </details>
-  <details class="crm-accordion-wrapper crm-search_criteria_basic-accordion" open>
-    <summary class="crm-accordion-header">
+  <details class="crm-accordion-bold crm-search_criteria_basic-accordion" open>
+    <summary>
       {ts}Basic Criteria{/ts}
     </summary>
     <div class="crm-accordion-body">
+      <div class="float-right">
+        <span class="crm-submit-buttons reset-advanced-search">
+          <a href="{crmURL p='civicrm/contact/search/advanced' q='reset=1'}" id="resetAdvancedSearch" class="crm-hover-button crm-inline-button" title="{ts escape='htmlattribute'}Clear all search criteria{/ts}">
+            <i class="crm-i fa-undo" role="img" aria-hidden="true"></i>
+            &nbsp;{ts}Reset Form{/ts}
+          </a>
+        </span>
+        {include file="CRM/common/formButtons.tpl" location="top"}
+      </div>
       {include file="CRM/Contact/Form/Search/Criteria/Basic.tpl"}
     </div>
   </details>
   {foreach from=$allPanes key=paneName item=paneValue}
-    <details class="crm-accordion-wrapper crm-ajax-accordion crm-{$paneValue.id}-accordion {if $paneValue.open eq 'true' || array_key_exists($paneName, $openedPanes)} {else}collapsed{/if}">
-      <summary class="crm-accordion-header" id="{$paneValue.id}">
+    <details class="crm-accordion-bold crm-ajax-accordion crm-{$paneValue.id}-accordion {if $paneValue.open eq 'true' || array_key_exists($paneName, $openedPanes)} {else}collapsed{/if}">
+      <summary id="{$paneValue.id}">
         {$paneName}
       </summary>
     <div class="crm-accordion-body {$paneValue.id}"></div>
@@ -125,12 +129,6 @@ CRM.$(function($) {
     <tr>
       <td>
         {include file="CRM/common/formButtons.tpl" location="bottom"}
-        <div class="crm-submit-buttons reset-advanced-search">
-          <a href="{crmURL p='civicrm/contact/search/advanced' q='reset=1'}" id="resetAdvancedSearch" class="crm-hover-button" title="{ts}Clear all search criteria{/ts}">
-            <i class="crm-i fa-undo" aria-hidden="true"></i>
-            &nbsp;{ts}Reset Form{/ts}
-          </a>
-        </div>
       </td>
     </tr>
   </table>

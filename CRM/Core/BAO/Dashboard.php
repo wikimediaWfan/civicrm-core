@@ -15,12 +15,22 @@
  * @copyright CiviCRM LLC https://civicrm.org/licensing
  */
 
-use Civi\Api4\DashboardContact;
+use Civi\Core\Event\GenericHookEvent;
+use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 
 /**
  * Class contains Contact dashboard related functions.
  */
-class CRM_Core_BAO_Dashboard extends CRM_Core_DAO_Dashboard {
+class CRM_Core_BAO_Dashboard extends CRM_Core_DAO_Dashboard implements EventSubscriberInterface {
+
+  /**
+   * @inheritdoc
+   */
+  public static function getSubscribedEvents(): array {
+    return [
+      'hook_civicrm_angularModules' => ['addDashboardModuleDependencies', -2000],
+    ];
+  }
 
   /**
    * Create or update Dashboard.
@@ -31,104 +41,89 @@ class CRM_Core_BAO_Dashboard extends CRM_Core_DAO_Dashboard {
    */
   public static function create($params) {
     $hook = empty($params['id']) ? 'create' : 'edit';
-    CRM_Utils_Hook::pre($hook, 'Dashboard', CRM_Utils_Array::value('id', $params), $params);
+    CRM_Utils_Hook::pre($hook, 'Dashboard', $params['id'] ?? NULL, $params);
     $dao = self::addDashlet($params);
-    CRM_Utils_Hook::post($hook, 'Dashboard', $dao->id, $dao);
+    CRM_Utils_Hook::post($hook, 'Dashboard', $dao->id, $dao, $params);
     return $dao;
   }
 
   /**
-   * Get all available contact dashlets
+   * partialsCallback from crmDashboard.ang.php
    *
+   * Generates an html template for each angular-based dashlet.
+   *
+   * @param $moduleName
+   * @param $module
    * @return array
-   *   array of dashlets
-   * @throws \CRM_Core_Exception
    */
-  public static function getContactDashlets(): array {
-    $cid = CRM_Core_Session::getLoggedInContactID();
-    if ($cid && !isset(Civi::$statics[__CLASS__][__FUNCTION__][$cid])) {
-      Civi::$statics[__CLASS__][__FUNCTION__][$cid] = [];
-      // If empty, then initialize default dashlets for this user.
-      if (0 === DashboardContact::get(FALSE)->selectRowCount()->addWhere('contact_id', '=', $cid)->execute()->count()) {
-        self::initializeDashlets();
-      }
-      $contactDashboards = (array) DashboardContact::get(FALSE)
-        ->addSelect('column_no', 'is_active', 'dashboard_id', 'weight', 'contact_id')
-        ->addWhere('contact_id', '=', $cid)
-        ->addOrderBy('weight')
-        ->execute()->indexBy('dashboard_id');
+  public static function angularPartials($moduleName, $module): array {
+    $angularDashletDirectives = \Civi\Api4\Dashboard::get(FALSE)
+      ->addWhere('directive', 'IS NOT EMPTY')
+      ->addSelect('directive', '')
+      ->execute()
+      ->column('directive');
 
-      $params = [
-        'select' => ['*', 'dashboard_contact.*'],
-        'where' => [
-          ['domain_id', '=', 'current_domain'],
-        ],
-      ];
-
-      // Get Dashboard + any joined DashboardContact records.
-      $results = (array) civicrm_api4('Dashboard', 'get', $params);
-      foreach ($results as $item) {
-        $item['dashboard_contact.id'] = $contactDashboards[$item['id']]['id'] ?? NULL;
-        $item['dashboard_contact.contact_id'] = $contactDashboards[$item['id']]['contact_id'] ?? NULL;
-        $item['dashboard_contact.weight'] = $contactDashboards[$item['id']]['weight'] ?? NULL;
-        $item['dashboard_contact.column_no'] = $contactDashboards[$item['id']]['column_no'] ?? NULL;
-        $item['dashboard_contact.is_active'] = $contactDashboards[$item['id']]['is_active'] ?? NULL;
-        if ($item['is_active'] && self::checkPermission($item['permission'], $item['permission_operator'])) {
-          Civi::$statics[__CLASS__][__FUNCTION__][$cid][] = $item;
-        }
-      }
-      usort(Civi::$statics[__CLASS__][__FUNCTION__][$cid], static function ($a, $b) {
-        // Sort by dashboard contact weight, preferring not null to null.
-        // I had hoped to do this in mysql either by
-        // 1) making the dashboard contact part of the query NOT permissioned while
-        // the parent query IS or
-        // 2) using FIELD like
-        // $params['orderBy'] = ['FIELD(id,' . implode(',', array_keys($contactDashboards)) . ')' => 'ASC'];
-        // 3) or making the dashboard contact acl more inclusive such that 'view own contact'
-        // is not required to view own contact's acl
-        // but I couldn't see a way to make any of the above work. Perhaps improve in master?
-        if (!isset($b['dashboard_contact.weight']) && !isset($a[$b['dashboard_contact.weight']])) {
-          return 0;
-        }
-        if (!isset($b['dashboard_contact.weight'])) {
-          return -1;
-        }
-        if (!isset($a['dashboard_contact.weight'])) {
-          return 1;
-        }
-        return $a['dashboard_contact.weight'] <=> $b['dashboard_contact.weight'];
-      });
+    $partials = [];
+    foreach ($angularDashletDirectives as $directive) {
+      $partials["~/{$moduleName}/directives/{$directive}.html"] = "<{$directive}></{$directive}>";
     }
-    return Civi::$statics[__CLASS__][__FUNCTION__][$cid] ?? [];
+    return $partials;
   }
 
   /**
-   * Set default dashlets for new users.
-   *
-   * Called when a user accesses their dashboard for the first time.
+   * Add modules that provide dashlet directives as dependencies to crmDashboard
    */
-  public static function initializeDashlets() {
-    $allDashlets = (array) civicrm_api4('Dashboard', 'get', [
-      'where' => [['domain_id', '=', 'current_domain']],
-    ], 'name');
-    $defaultDashlets = [];
-    $defaults = ['blog' => 1, 'getting-started' => '0'];
-    foreach ($defaults as $name => $column) {
-      if (!empty($allDashlets[$name]) && !empty($allDashlets[$name]['id'])) {
-        $defaultDashlets[$name] = [
-          'dashboard_id' => $allDashlets[$name]['id'],
-          'is_active' => 1,
-          'column_no' => $column,
-        ];
+  public static function addDashboardModuleDependencies(GenericHookEvent $e): void {
+    $dashletDirectives = \Civi\Api4\Dashboard::get(FALSE)
+      ->addWhere('directive', 'IS NOT EMPTY')
+      ->addSelect('directive', '')
+      ->execute()
+      ->column('directive');
+
+    $dashletModules = [];
+
+    // Find (the first) module that provides each directive
+    foreach ($dashletDirectives as $directive) {
+      foreach ($e->angularModules as $moduleName => $module) {
+        if (!empty($module['exports'][$directive])) {
+          $dashletModules[] = $moduleName;
+          continue 2;
+        }
+      }
+      \Civi::log()->warning("No Angular module found to provide crmDashboard dashlet directive: {$directive}");
+    }
+
+    $e->angularModules['crmDashboard']['requires'] = array_unique(array_merge(
+      $e->angularModules['crmDashboard']['requires'],
+      $dashletModules
+    ));
+  }
+
+  /**
+   * Enforce permission restrictions on Dashboards.
+   *
+   * @param string|null $entityName
+   * @param int|null $userId
+   * @param array $conditions
+   * @return array
+   */
+  public function addSelectWhereClause(?string $entityName = NULL, ?int $userId = NULL, array $conditions = []): array {
+    $dao = CRM_Core_DAO::executeQuery("SELECT id, permission, permission_operator FROM civicrm_dashboard");
+    $permittedIds = [];
+    while ($dao->fetch()) {
+      $permission = CRM_Core_DAO::unSerializeField($dao->permission, CRM_Core_DAO::SERIALIZE_COMMA);
+      if (self::checkPermission($permission, $dao->permission_operator, $userId)) {
+        $permittedIds[] = $dao->id;
       }
     }
-    CRM_Utils_Hook::dashboard_defaults($allDashlets, $defaultDashlets);
-    if (is_array($defaultDashlets) && !empty($defaultDashlets)) {
-      DashboardContact::save(FALSE)
-        ->setRecords($defaultDashlets)
-        ->setDefaults(['contact_id' => CRM_Core_Session::getLoggedInContactID()])
-        ->execute();
-    }
+
+    $clauses = [
+      'id' => ['IN (' . implode(', ', $permittedIds ?: [0]) . ')'],
+    ];
+
+    CRM_Utils_Hook::selectWhereClause($entityName ?? $this, $clauses);
+
+    return $clauses;
   }
 
   /**
@@ -136,11 +131,12 @@ class CRM_Core_BAO_Dashboard extends CRM_Core_DAO_Dashboard {
    *
    * @param array|null $permissions
    * @param string|null $operator
+   * @param int|null $contactId
    *
    * @return bool
    *   true if user has permission to view dashlet
    */
-  private static function checkPermission(?array $permissions, ?string $operator): bool {
+  private static function checkPermission(?array $permissions, ?string $operator, ?int $contactId = NULL): bool {
     if ($permissions) {
       static $allComponents;
       if (!$allComponents) {
@@ -155,7 +151,7 @@ class CRM_Core_BAO_Dashboard extends CRM_Core_DAO_Dashboard {
 
         // If the permission depends on a component, ensure it is enabled
         if ($componentName) {
-          if (!CRM_Core_Component::isEnabled($componentName) || !CRM_Core_Permission::check($key)) {
+          if (!CRM_Core_Component::isEnabled($componentName) || !CRM_Core_Permission::check($key, $contactId)) {
             $showDashlet = FALSE;
             if ($operator == 'AND') {
               return $showDashlet;
@@ -165,7 +161,7 @@ class CRM_Core_BAO_Dashboard extends CRM_Core_DAO_Dashboard {
             $hasPermission = TRUE;
           }
         }
-        elseif (!CRM_Core_Permission::check($key)) {
+        elseif (!CRM_Core_Permission::check($key, $contactId)) {
           $showDashlet = FALSE;
           if ($operator == 'AND') {
             return $showDashlet;

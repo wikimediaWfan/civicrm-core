@@ -7,6 +7,7 @@ Required vars: activitySet
   <tr>
     <th></th>
     <th>{{:: ts('Activity') }}</th>
+    <th>{{:: ts('Default subject') }}</th>
     <th></th>
   </tr>
   </thead>
@@ -14,11 +15,19 @@ Required vars: activitySet
   <tbody ui-sortable ng-model="activitySet.activityTypes">
   <tr ng-repeat="activity in activitySet.activityTypes">
     <td>
-      <i class="crm-i fa-arrows grip-n-drag" aria-hidden="true"></i>
+      <i class="crm-i fa-arrows grip-n-drag" role="img" aria-hidden="true"></i>
     </td>
     <td>
-      <i class="crm-i {{ activityTypes[activity.name].icon }}" aria-hidden="true"></i>
+      <i class="crm-i {{ activityTypes[activity.name].icon }}" role="img" aria-hidden="true"></i>
       {{ activity.name }}
+    </td>
+    <td>
+      <input
+        class="crm-form-text"
+        type="text"
+        ng-model="activity.default_subject"
+        placeholder="{{:: ts('(no subject)') }}"
+        />
     </td>
     <td>
       <a crm-icon="fa-trash" class="crm-hover-button" ng-click="removeItem(activitySet.activityTypes, activity)" title="{{:: ts('Remove') }}"></a>
@@ -28,7 +37,7 @@ Required vars: activitySet
 
   <tfoot>
   <tr class="addRow">
-    <td colspan="3">
+    <td colspan="4">
       <span crm-add-name
            crm-options="activityTypeOptions"
            crm-var="newActivity"

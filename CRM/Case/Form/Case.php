@@ -16,9 +16,11 @@
  */
 
 /**
- * This class generates form components for case activity.
+ * This class generates form components for case actions.
  */
-class CRM_Case_Form_Case extends CRM_Core_Form {
+class CRM_Case_Form_Case extends CRM_Core_Form implements CRM_Case_Form_CaseFormInterface {
+  use CRM_Custom_Form_CustomDataTrait;
+  use CRM_Case_Form_CaseLookupTrait;
 
   /**
    * The context
@@ -29,7 +31,12 @@ class CRM_Case_Form_Case extends CRM_Core_Form {
 
   /**
    * Case Id
+   *
    * @var int
+   *
+   * @internal
+   *
+   * use getCaseID to access.
    */
   public $_caseId = NULL;
 
@@ -78,6 +85,21 @@ class CRM_Case_Form_Case extends CRM_Core_Form {
   public $submitOnce = TRUE;
 
   /**
+   * @var float|int|mixed|string|null
+   *
+   * This is inconsistently set & likely to be replaced by a local variable or getter.
+   */
+  public $_contactID;
+
+  /**
+   * @var float|int|mixed|string|null
+   * @deprecated
+   *
+   * This is inconsistently set & likely to be replaced by a local variable or getter.
+   */
+  public $_caseStatusId;
+
+  /**
    * Explicitly declare the entity api name.
    */
   public function getDefaultEntity() {
@@ -90,18 +112,23 @@ class CRM_Case_Form_Case extends CRM_Core_Form {
    * @return int|null
    */
   public function getEntityId() {
-    return $this->_caseId;
+    return $this->getCaseID();
   }
 
   /**
    * Build the form object.
+   *
+   * @throws \CRM_Core_Exception
    */
   public function preProcess() {
     if (empty($this->_action)) {
       $this->_action = CRM_Core_Action::ADD;
     }
 
-    $this->_caseId = CRM_Utils_Request::retrieve('id', 'Positive', $this);
+    // Since we return early when action is DELETE, we need to retrieve the
+    // case ID from the request params now so it can be set in the session,
+    // since it isn't present in the url on POST when not using popups.
+    $this->getCaseID();
 
     $this->_currentlyViewedContactId = CRM_Utils_Request::retrieve('cid', 'Positive', $this);
 
@@ -122,7 +149,7 @@ class CRM_Case_Form_Case extends CRM_Core_Form {
       return TRUE;
     }
 
-    if (!$this->_caseId) {
+    if (!$this->getCaseID()) {
       $caseAttributes = [
         'case_type_id' => ts('Case Type'),
         'status_id' => ts('Case Status'),
@@ -177,22 +204,49 @@ class CRM_Case_Form_Case extends CRM_Core_Form {
     }
     $this->assign('clientName', isset($this->_currentlyViewedContactId) ? $contact->display_name : NULL);
 
-    $session = CRM_Core_Session::singleton();
-    $this->_currentUserId = $session->get('userID');
+    $this->_currentUserId = CRM_Core_Session::getLoggedInContactID();
 
-    //Add activity custom data is included in this page
-    CRM_Custom_Form_CustomData::preProcess($this, NULL, $this->_activityTypeId, 1, 'Activity');
-    $className = "CRM_Case_Form_Activity_{$this->_activityTypeFile}";
-    $className::preProcess($this);
-    $activityGroupTree = $this->_groupTree;
+    CRM_Case_Form_Activity_OpenCase::preProcess($this);
 
-    // Add case custom data to form
-    $caseTypeId = CRM_Utils_Array::value('case_type_id', CRM_Utils_Request::exportValues(), $this->_caseTypeId);
-    CRM_Custom_Form_CustomData::addToForm($this, $caseTypeId);
+    if ($this->isSubmitted()) {
+      // The custom data fields are added to the form by an ajax form.
+      // However, if they are not present in the element index they will
+      // not be available from `$this->getSubmittedValue()` in post process.
+      // We do not have to set defaults or otherwise render - just add to the element index.
+      $this->addCustomDataFieldsToForm('Case', array_filter([
+        'id' => $this->getCaseID(),
+        'case_type_id' => $this->getSubmittedValue('case_type_id'),
+      ]));
+      $this->addCustomDataFieldsToForm('Activity', [
+        'activity_type_id' => $this->_activityTypeId,
+      ]);
+    }
+    // Used for loading custom data fields
+    $this->assign('activityTypeID', $this->_activityTypeId);
+    $this->assign('caseTypeID', $this->getSubmittedValue('case_type_id') ?: $this->getCaseValue('case_type_id'));
+  }
 
-    // so that grouptree is not populated with case fields, since the grouptree is used
-    // for populating activity custom fields.
-    $this->_groupTree = $activityGroupTree;
+  /**
+   * Get the selected Case ID.
+   *
+   * @api This function will not change in a minor release and is supported for
+   * use outside of core. This annotation / external support for properties
+   * is only given where there is specific test cover.
+   *
+   * @noinspection PhpUnhandledExceptionInspection
+   */
+  public function getCaseID(): ?int {
+    if (!isset($this->_caseId)) {
+      $this->_caseId = CRM_Utils_Request::retrieve('id', 'Positive', $this);
+    }
+    return $this->_caseId;
+  }
+
+  /**
+   * Used to set case ID  in submit
+   */
+  protected function setCaseID(int $id): void {
+    $this->_caseId = $id;
   }
 
   /**
@@ -202,10 +256,7 @@ class CRM_Case_Form_Case extends CRM_Core_Form {
     if ($this->_action & CRM_Core_Action::DELETE || $this->_action & CRM_Core_Action::RENEW) {
       return [];
     }
-    $className = "CRM_Case_Form_Activity_{$this->_activityTypeFile}";
-    $defaults = $className::setDefaultValues($this);
-    $defaults = array_merge($defaults, CRM_Custom_Form_CustomData::setDefaultValues($this));
-    return $defaults;
+    return CRM_Case_Form_Activity_OpenCase::setDefaultValues($this);
   }
 
   public function buildQuickForm() {
@@ -232,9 +283,6 @@ class CRM_Case_Form_Case extends CRM_Core_Form {
       ]);
       return;
     }
-
-    // Add the activity custom data to the form
-    CRM_Custom_Form_CustomData::buildQuickForm($this);
 
     // we don't want to show button on top of custom form
     $this->assign('noPreCustomButton', TRUE);
@@ -274,8 +322,7 @@ class CRM_Case_Form_Case extends CRM_Core_Form {
       ],
     ]);
 
-    $className = "CRM_Case_Form_Activity_{$this->_activityTypeFile}";
-    $className::buildQuickForm($this);
+    CRM_Case_Form_Activity_OpenCase::buildQuickForm($this);
   }
 
   /**
@@ -287,7 +334,7 @@ class CRM_Case_Form_Case extends CRM_Core_Form {
     if ($this->_action & CRM_Core_Action::DELETE || $this->_action & CRM_Core_Action::RENEW) {
       return TRUE;
     }
-    $className = "CRM_Case_Form_Activity_{$this->_activityTypeFile}";
+    $className = "CRM_Case_Form_Activity_OpenCase";
     $this->addFormRule([$className, 'formRule'], $this);
     $this->addFormRule(['CRM_Case_Form_Case', 'formRule'], $this);
   }
@@ -309,25 +356,6 @@ class CRM_Case_Form_Case extends CRM_Core_Form {
   }
 
   /**
-   * Wrapper for unit testing the post process submit function.
-   *
-   * @param $params
-   * @param $activityTypeFile
-   * @param $contactId
-   * @param $context
-   * @return CRM_Case_BAO_Case
-   */
-  public function testSubmit($params, $activityTypeFile, $contactId, $context = "case") {
-    $this->controller = new CRM_Core_Controller();
-
-    $this->_activityTypeFile = $activityTypeFile;
-    $this->_currentUserId = $contactId;
-    $this->_context = $context;
-
-    return $this->submit($params);
-  }
-
-  /**
    * Submit the form with given params.
    *
    * @param $params
@@ -337,19 +365,14 @@ class CRM_Case_Form_Case extends CRM_Core_Form {
 
     // 1. call begin post process
     if ($this->_activityTypeFile) {
-      $className = "CRM_Case_Form_Activity_{$this->_activityTypeFile}";
-      $className::beginPostProcess($this, $params);
+      CRM_Case_Form_Activity_OpenCase::beginPostProcess($this, $params);
     }
 
-    if (!empty($params['hidden_custom']) &&
-      !isset($params['custom'])
-    ) {
-      $params['custom'] = CRM_Core_BAO_CustomField::postProcess(
-        $params,
-        NULL,
-        'Case'
-      );
-    }
+    $params['custom'] = CRM_Core_BAO_CustomField::postProcess(
+      $this->getSubmittedValues(),
+      NULL,
+      'Case'
+    );
 
     // 2. create/edit case
     if (!empty($params['case_type_id'])) {
@@ -359,7 +382,8 @@ class CRM_Case_Form_Case extends CRM_Core_Form {
       $params['details'] = $params['activity_details'];
     }
     $caseObj = CRM_Case_BAO_Case::create($params);
-    $this->_caseId = $params['case_id'] = $caseObj->id;
+    $this->setCaseID($caseObj->id);
+    $params['case_id'] = $this->getCaseID();
     // unset any ids, custom data
     unset($params['id'], $params['custom']);
 
@@ -374,30 +398,28 @@ class CRM_Case_Form_Case extends CRM_Core_Form {
         $tagParams[$tag] = 1;
       }
     }
-    CRM_Core_BAO_EntityTag::create($tagParams, 'civicrm_case', $caseObj->id);
+    CRM_Core_BAO_EntityTag::create($tagParams, 'civicrm_case', $this->getCaseID());
 
     //save free tags
     if (isset($params['case_taglist']) && !empty($params['case_taglist'])) {
-      CRM_Core_Form_Tag::postProcess($params['case_taglist'], $caseObj->id, 'civicrm_case', $this);
+      CRM_Core_Form_Tag::postProcess($params['case_taglist'], $this->getCaseID(), 'civicrm_case', $this);
     }
 
     // user context
     $url = CRM_Utils_System::url('civicrm/contact/view/case',
-      "reset=1&action=view&cid={$this->_currentlyViewedContactId}&id={$caseObj->id}"
+      "reset=1&action=view&cid={$this->_currentlyViewedContactId}&id={$this->getCaseID()}"
     );
     CRM_Core_Session::singleton()->pushUserContext($url);
 
     // 3. format activity custom data
-    if (!empty($params['hidden_custom'])) {
-      $params['custom'] = CRM_Core_BAO_CustomField::postProcess($params,
-        $this->_activityId,
-        'Activity'
-      );
-    }
+    $params['custom'] = CRM_Core_BAO_CustomField::postProcess($this->getSubmittedValues(),
+      $this->_activityId,
+      'Activity'
+    );
 
     // 4. call end post process
     if ($this->_activityTypeFile) {
-      $className::endPostProcess($this, $params);
+      CRM_Case_Form_Activity_OpenCase::endPostProcess($this, $params);
     }
 
     return $caseObj;
@@ -416,7 +438,7 @@ class CRM_Case_Form_Case extends CRM_Core_Form {
     }
 
     if ($this->_action & CRM_Core_Action::DELETE) {
-      $caseDelete = CRM_Case_BAO_Case::deleteCase($this->_caseId, TRUE);
+      $caseDelete = CRM_Case_BAO_Case::deleteCase($this->getCaseID(), TRUE);
       if ($caseDelete) {
         CRM_Core_Session::setStatus(ts('You can view and / or restore deleted cases by checking the "Deleted Cases" option under Find Cases.'), ts('Case Deleted'), 'success');
       }
@@ -424,7 +446,7 @@ class CRM_Case_Form_Case extends CRM_Core_Form {
     }
 
     if ($this->_action & CRM_Core_Action::RENEW) {
-      $caseRestore = CRM_Case_BAO_Case::restoreCase($this->_caseId);
+      $caseRestore = CRM_Case_BAO_Case::restoreCase($this->getCaseID());
       if ($caseRestore) {
         CRM_Core_Session::setStatus(ts('The selected case has been restored.'), ts('Restored'), 'success');
       }

@@ -18,22 +18,7 @@
 /**
  * This class generates form components for Mapping and Geocoding.
  */
-class CRM_Admin_Form_Setting_Mapping extends CRM_Admin_Form_Setting {
-
-  protected $_settings = [
-    'mapAPIKey' => CRM_Core_BAO_Setting::MAP_PREFERENCES_NAME,
-    'mapProvider' => CRM_Core_BAO_Setting::MAP_PREFERENCES_NAME,
-    'geoAPIKey' => CRM_Core_BAO_Setting::MAP_PREFERENCES_NAME,
-    'geoProvider' => CRM_Core_BAO_Setting::MAP_PREFERENCES_NAME,
-  ];
-
-  /**
-   * Build the form object.
-   */
-  public function buildQuickForm() {
-    $this->setTitle(ts('Settings - Mapping and Geocoding Providers'));
-    parent::buildQuickForm();
-  }
+class CRM_Admin_Form_Setting_Mapping extends CRM_Admin_Form_Generic {
 
   /**
    * Global form rule.

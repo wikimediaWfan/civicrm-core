@@ -67,9 +67,6 @@ class CRM_Utils_ICalendar {
     $text = str_replace(';', '\;', $text);
     $text = str_replace(["\r\n", "\n", "\r"], "\\n ", $text);
 
-    // Remove this check after PHP 7.4 becomes a minimum requirement
-    $str_split = function_exists('mb_str_split') ? 'mb_str_split' : 'str_split';
-
     if ($keep_html) {
       $text = '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN"><html><body>' . $text . '</body></html>';
     }
@@ -79,7 +76,7 @@ class CRM_Utils_ICalendar {
       $prefix = mb_substr($text, 0, $prefixlen) . "\n ";
       $text = mb_substr($text, $prefixlen);
     }
-    $text = $prefix . implode("\n ", $str_split($text, 50));
+    $text = $prefix . implode("\n ", mb_str_split($text, 50));
     return $text;
   }
 
@@ -174,16 +171,17 @@ class CRM_Utils_ICalendar {
     $tz_items = [];
 
     foreach ($timezones as $tzstr) {
-      $timezone = new DateTimeZone($tzstr);
+      $utcTimezone = new DateTimeZone('UTC');
+      $eventTimezone = new DateTimeZone($tzstr);
 
-      $transitions = $timezone->getTransitions($date_min, $date_max);
+      $transitions = $eventTimezone->getTransitions($date_min, $date_max);
 
       if (count($transitions) === 1) {
         $transitions[] = array_values($transitions)[0];
       }
 
       $item = [
-        'id' => $timezone->getName(),
+        'id' => $eventTimezone->getName(),
         'transitions' => [],
       ];
 
@@ -195,9 +193,8 @@ class CRM_Utils_ICalendar {
           'offset_from' => self::format_tz_offset($last_transition['offset']),
           'offset_to' => self::format_tz_offset($transition['offset']),
           'abbr' => $transition['abbr'],
-          'dtstart' => date_create($transition['time'], $timezone)->format("Ymd\THis"),
+          'dtstart' => date_create($transition['time'], $utcTimezone)->setTimezone($eventTimezone)->format("Ymd\THis"),
         ];
-
         $last_transition = $transition;
       }
 

@@ -16,6 +16,11 @@ use Civi\API\Event\ExceptionEvent;
 use Civi\API\Event\ResolveEvent;
 use Civi\API\Event\RespondEvent;
 
+// Removing Exception breaks CiviCRM Entity < 4.0.6
+// @todo  Remove api/Exception end of 2026, or later.
+require_once 'api/Exception.php';
+require_once 'api/v3/utils.php';
+
 /**
  * @package Civi
  * @copyright CiviCRM LLC https://civicrm.org/licensing
@@ -80,10 +85,6 @@ class Kernel {
       return $this->formatResult($apiRequest, $apiResponse);
     }
     catch (\Exception $e) {
-      if ($apiRequest) {
-        $this->dispatcher->dispatch('civi.api.exception', new ExceptionEvent($e, NULL, $apiRequest, $this));
-      }
-
       if ($e instanceof \CRM_Core_Exception) {
         $err = $this->formatApiException($e, $apiRequest);
       }
@@ -139,23 +140,37 @@ class Kernel {
    * @throws \Civi\API\Exception\UnauthorizedException
    */
   public function runRequest($apiRequest) {
-    $this->boot($apiRequest);
-
-    [$apiProvider, $apiRequest] = $this->resolve($apiRequest);
-
     try {
-      $this->authorize($apiProvider, $apiRequest);
+      $this->boot($apiRequest);
+
+      [$apiProvider, $apiRequest] = $this->resolve($apiRequest);
+
+      try {
+        $this->authorize($apiProvider, $apiRequest);
+      }
+      catch (\Civi\API\Exception\UnauthorizedException $e) {
+        // We catch and re-throw to log for visibility
+        if ($apiRequest instanceof \Civi\Api4\Generic\AbstractAction) {
+          $context = (method_exists($apiRequest, 'getWhere') ? ['apiRequest[where]' => $apiRequest->getWhere()] : []);
+          \Civi::log()->error('API4 Request Authorization failed: ' . $apiRequest->getEntityName() . '::' . $apiRequest->getActionName(), $context);
+        }
+        else {
+          \CRM_Core_Error::backtrace('API3 Request Authorization failed', TRUE);
+        }
+        throw $e;
+      }
+
+      [$apiProvider, $apiRequest] = $this->prepare($apiProvider, $apiRequest);
+      $result = $apiProvider->invoke($apiRequest);
+
+      return $this->respond($apiProvider, $apiRequest, $result);
     }
-    catch (\Civi\API\Exception\UnauthorizedException $e) {
-      // We catch and re-throw to log for visibility
-      \CRM_Core_Error::backtrace('API Request Authorization failed', TRUE);
+    catch (\Exception $e) {
+      if ($apiRequest) {
+        $this->dispatcher->dispatch('civi.api.exception', new ExceptionEvent($e, NULL, $apiRequest, $this));
+      }
       throw $e;
     }
-
-    [$apiProvider, $apiRequest] = $this->prepare($apiProvider, $apiRequest);
-    $result = $apiProvider->invoke($apiRequest);
-
-    return $this->respond($apiProvider, $apiRequest, $result);
   }
 
   /**
@@ -165,11 +180,9 @@ class Kernel {
    * @throws \CRM_Core_Exception
    */
   public function boot($apiRequest) {
-    require_once 'api/Exception.php';
     // the create error function loads some functions from utils
     // so this require is also needed for apiv4 until such time as
     // we alter create error.
-    require_once 'api/v3/utils.php';
     switch ($apiRequest['version']) {
       case 3:
         if (!is_array($apiRequest['params'])) {
@@ -227,7 +240,7 @@ class Kernel {
     /** @var \Civi\API\Event\AuthorizeEvent $event */
     $event = $this->dispatcher->dispatch('civi.api.authorize', new AuthorizeEvent($apiProvider, $apiRequest, $this, \CRM_Core_Session::getLoggedInContactID() ?: 0));
     if (!$event->isAuthorized()) {
-      throw new \Civi\API\Exception\UnauthorizedException("Authorization failed");
+      throw new \Civi\API\Exception\UnauthorizedException("Authorization failed: CiviCRM APIv{$apiRequest['version']} ({$apiRequest['entity']}::{$apiRequest['action']})");
     }
   }
 
@@ -404,7 +417,6 @@ class Kernel {
       }
     }
 
-    require_once "api/v3/utils.php";
     $data = \civicrm_api3_create_error($msg, $data);
 
     if (isset($apiRequest['params']) && is_array($apiRequest['params']) && !empty($apiRequest['params']['api.has_parent'])) {

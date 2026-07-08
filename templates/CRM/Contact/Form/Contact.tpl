@@ -15,18 +15,15 @@
     {include file="CRM/Contact/Form/Edit/Lock.tpl"}
   {/if}
   <div class="crm-form-block crm-search-form-block">
-    {if call_user_func(array('CRM_Core_Permission','check'), 'administer CiviCRM')}
-      <a href='{crmURL p="civicrm/admin/setting/preferences/display" q="reset=1"}' title="{ts}Click here to configure the panes.{/ts}"><i class="crm-i fa-wrench" aria-hidden="true"></i></a>
-    {/if}
-    <span style="float:right;"><a href="#expand" id="expand">{ts}Expand all tabs{/ts}</a></span>
+    <span class="float-right"><a href="#expand" id="expand">{ts}Expand all tabs{/ts}</a></span>
     <div class="crm-submit-buttons">
     {include file="CRM/common/formButtons.tpl" location="top"}
     </div>
 
-    <div class="crm-accordion-wrapper crm-contactDetails-accordion">
-      <div class="crm-accordion-header">
+    <details class="crm-accordion-bold crm-contactDetails-accordion" open>
+      <summary>
         {ts}Contact Details{/ts}
-      </div><!-- /.crm-accordion-header -->
+      </summary>
       <div class="crm-accordion-body" id="contactDetails">
         <div id="contactDetails">
           <div class="crm-section contact_basic_information-section">
@@ -39,15 +36,19 @@
           </table>
           <table class="crm-section contact_source-section form-layout-compressed">
             <tr class="last-row">
-              <td>{$form.contact_source.label} {help id="id-source"}<br />
+              <td>{$form.contact_source.label} {help id="contact_source"}<br />
                 {$form.contact_source.html|crmAddClass:twenty}
               </td>
-              <td>{$form.external_identifier.label}&nbsp;{help id="id-external-id"}<br />
+              <td>{$form.external_identifier.label}&nbsp;{help id="external_identifier"}<br />
                 {$form.external_identifier.html}
               </td>
               {if $contactId}
                 <td>
-                  <label for="internal_identifier_display">{ts}Contact ID{/ts} {help id="id-contact-id"}</label><br />
+                  <label for="internal_identifier_display">
+                    {capture assign="contactIdLabel"}{ts}Contact ID{/ts}{/capture}
+                    {$contactIdLabel}
+                    {help id="contact_id" title=$contactIdLabel}
+                  </label><br />
                   <input id="internal_identifier_display" type="text" class="crm-form-text six" size="6" readonly="readonly" value="{$contactId}">
                 </td>
               {/if}
@@ -56,7 +57,7 @@
           <table class="image_URL-section form-layout-compressed">
             <tr>
               <td>
-                {$form.image_URL.label}&nbsp;&nbsp;{help id="id-upload-image" file="CRM/Contact/Form/Contact.hlp"}<br />
+                {$form.image_URL.label}&nbsp;&nbsp;{help id="image_URL" file="CRM/Contact/Form/Contact.hlp"}<br />
                 {$form.image_URL.html|crmAddClass:twenty}
                 {if !empty($imageURL)}
                 {include file="CRM/Contact/Page/ContactImage.tpl"}
@@ -73,12 +74,12 @@
           {/if}
           <div class="spacer"></div>
         </div>
-      </div><!-- /.crm-accordion-body -->
-    </div><!-- /.crm-accordion-wrapper -->
+      </div>
+    </details>
 
     {foreach from = $editOptions item = "title" key="name"}
       {if $name eq 'CustomData'}
-        <div id='customData'>{include file="CRM/Contact/Form/Edit/CustomData.tpl" isSingleRecordEdit=false}</div>
+        <div id='customData_{$contactType}'>{include file="CRM/Contact/Form/Edit/CustomData.tpl" isSingleRecordEdit=false skipTitle=false}</div>
       {else}
         {include file="CRM/Contact/Form/Edit/$name.tpl"}
       {/if}
@@ -86,14 +87,17 @@
     <div class="crm-submit-buttons">
     {include file="CRM/common/formButtons.tpl" location="bottom"}
     </div>
+    {crmPermission has='administer CiviCRM'}
+      <span class="float-right"><a href='{crmURL p="civicrm/admin/setting/preferences/display" q="reset=1"}' title="{ts escape='htmlattribute'}Click here to configure the panes.{/ts}"><i class="crm-i fa-wrench" role="img" aria-hidden="true"></i></a></span>
+    {/crmPermission}
   </div>
   {literal}
 
   <script type="text/javascript" >
   CRM.$(function($) {
     var $form = $("form.{/literal}{$form.formClass}{literal}"),
-      action = {/literal}{$action|intval}{literal},
-      cid = {/literal}{$contactId|intval}{literal},
+      action = {/literal}{$action|string_format:"%d"}{literal},
+      cid = {/literal}{$contactId|string_format:"%d"}{literal},
       _ = CRM._;
 
     $('.crm-accordion-body').each( function() {
@@ -106,15 +110,15 @@
       }
       //open tab if form rule throws error
       if ( $(this).children().find('span.crm-error').text().length > 0 ) {
-        $(this).parents('.collapsed').crmAccordionToggle();
+        $(this).parents('details').prop('open', true);
       }
     });
     if (action === 2) {
-      $('.crm-accordion-wrapper').not('.crm-accordion-wrapper .crm-accordion-wrapper').each(function() {
+      $('details').not('details details').each(function() {
         highlightTabs(this);
       });
       $('#crm-container').on('change click', '.crm-accordion-body :input, .crm-accordion-body a', function() {
-        highlightTabs($(this).parents('.crm-accordion-wrapper'));
+        highlightTabs($(this).parents('details'));
       });
     }
     function highlightTabs(tab) {
@@ -125,7 +129,7 @@
             case 'checkbox':
             case 'radio':
               if($(this).is(':checked') && !$(this).is('[id$=IsPrimary],[id$=IsBilling]')) {
-                $('.crm-accordion-header:first', tab).addClass('active');
+                $('summary:first', tab).addClass('active');
                 return false;
               }
               break;
@@ -133,7 +137,7 @@
             case 'text':
             case 'textarea':
               if($(this).val()) {
-                $('.crm-accordion-header:first', tab).addClass('active');
+                $('summary:first', tab).addClass('active');
                 return false;
               }
               break;
@@ -141,19 +145,19 @@
             case 'select-one':
             case 'select-multiple':
               if($(this).val() && $('option[value=""]', this).length > 0) {
-                $('.crm-accordion-header:first', tab).addClass('active');
+                $('summary:first', tab).addClass('active');
                 return false;
               }
               break;
 
             case 'file':
               if($(this).next().html()) {
-                $('.crm-accordion-header:first', tab).addClass('active');
+                $('summary:first', tab).addClass('active');
                 return false;
               }
               break;
           }
-          $('.crm-accordion-header:first', tab).removeClass('active');
+          $('summary:first', tab).removeClass('active');
       });
     }
 
@@ -161,11 +165,11 @@
       if( $(this).attr('href') == '#expand') {
         var message = {/literal}"{ts escape='js'}Collapse all tabs{/ts}"{literal};
         $(this).attr('href', '#collapse');
-        $('.crm-accordion-wrapper.collapsed').crmAccordionToggle();
+        $('.crm-form-block details').prop('open', true);
       }
       else {
         var message = {/literal}"{ts escape='js'}Expand all tabs{/ts}"{literal};
-        $('.crm-accordion-wrapper:not(.collapsed)').crmAccordionToggle();
+        $('.crm-form-block details').prop('open', false);
         $(this).attr('href', '#expand');
       }
       $(this).html(message);
@@ -244,14 +248,7 @@
     {/literal}{* Ajax check for matching contacts *}
     {if $checkSimilar == 1}
     var contactType = {$contactType|@json_encode},
-      rules = {*$ruleFields|@json_encode*}{literal}[
-        'first_name',
-        'last_name',
-        'nick_name',
-        'household_name',
-        'organization_name',
-        'email'
-      ],
+      rules = {$ruleFields}{literal},
       ruleFields = {},
       $ruleElements = $(),
       matchMessage,

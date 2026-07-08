@@ -24,13 +24,24 @@
  *   <http://www.gnu.org/licenses/>.
  */
 
+use Civi\Api4\Batch;
 use Civi\Api4\Campaign;
+use Civi\Api4\Contribution;
+use Civi\Api4\LineItem;
+use Civi\Api4\MembershipLog;
 
 /**
  * @package   CiviCRM
  * @group headless
  */
 class CRM_Batch_Form_EntryTest extends CiviUnitTestCase {
+
+  /**
+   * API version in use.
+   *
+   * @var int
+   */
+  protected $_apiversion = 4;
 
   /**
    * @var int
@@ -41,11 +52,6 @@ class CRM_Batch_Form_EntryTest extends CiviUnitTestCase {
    * @var int
    */
   protected $organizationContactID;
-
-  /**
-   * @var int
-   */
-  protected $organizationContactID2;
 
   /**
    * @var int
@@ -76,14 +82,6 @@ class CRM_Batch_Form_EntryTest extends CiviUnitTestCase {
    * @var int
    */
   protected $contactID4 = NULL;
-
-  /**
-   * Validate all financial entities before tear down.
-   *
-   * @var bool
-   * @see CiviUnitTestCase->assertPostConditions()
-   */
-  protected $isValidateFinancialsOnPostAssert = TRUE;
 
   /**
    * @throws \CRM_Core_Exception
@@ -120,21 +118,20 @@ class CRM_Batch_Form_EntryTest extends CiviUnitTestCase {
     $membershipType = $this->callAPISuccess('membership_type', 'create', $params);
     $this->membershipTypeID = $membershipType['id'];
 
-    $this->organizationContactID2 = $this->organizationCreate();
+    $this->organizationCreate([], 'organization_2');
     $params = [
       'name' => 'General',
       'duration_unit' => 'year',
       'duration_interval' => 1,
       'period_type' => 'rolling',
-      'member_of_contact_id' => $this->organizationContactID2,
+      'member_of_contact_id' => $this->ids['Contact']['organization_2'],
       'domain_id' => 1,
       'financial_type_id' => 1,
       'is_active' => 1,
       'sequential' => 1,
       'visibility' => 'Public',
     ];
-    $membershipType2 = $this->callAPISuccess('MembershipType', 'create', $params);
-    $this->membershipTypeID2 = $membershipType2['id'];
+    $this->membershipTypeID2 = $this->membershipTypeCreate($params);
 
     $this->membershipStatusCreate('test status');
     $this->contactID = $this->individualCreate();
@@ -158,7 +155,7 @@ class CRM_Batch_Form_EntryTest extends CiviUnitTestCase {
    */
   public function tearDown(): void {
     $this->quickCleanUpFinancialEntities();
-    $this->quickCleanup(['civicrm_campaign']);
+    $this->quickCleanup(['civicrm_campaign', 'civicrm_batch', 'civicrm_entity_batch']);
     $this->relationshipTypeDelete($this->relationshipTypeID);
     if ($this->callAPISuccessGetCount('membership', ['id' => $this->membershipTypeID])) {
       $this->membershipTypeDelete(['id' => $this->membershipTypeID]);
@@ -179,12 +176,11 @@ class CRM_Batch_Form_EntryTest extends CiviUnitTestCase {
   public function testProcessMembership(string $thousandSeparator): void {
     $this->setCurrencySeparators($thousandSeparator);
 
-    $form = new CRM_Batch_Form_Entry();
-    $profileID = (int) $this->callAPISuccessGetValue('UFGroup', ['return' => 'id', 'name' => 'membership_batch_entry']);
-    $form->_fields = CRM_Core_BAO_UFGroup::getFields($profileID, FALSE, CRM_Core_Action::VIEW);
-
     $params = $this->getMembershipData();
-    $this->assertEquals(4500.0, $form->testProcessMembership($params));
+    $this->createTestEntity('Batch', ['name' => 'membership', 'status_id:name' => 'Open', 'type_id:name' => 'Membership', 'item_count' => 3, 'total' => 3]);
+    $this->getTestForm('CRM_Batch_Form_Entry', $params, ['id' => $this->ids['Batch']['default']])
+      ->processForm();
+
     $memberships = $this->callAPISuccess('Membership', 'get')['values'];
     $this->assertCount(3, $memberships);
 
@@ -200,10 +196,10 @@ class CRM_Batch_Form_EntryTest extends CiviUnitTestCase {
     $this->assertEquals(date('Y-m-d', strtotime('last day of December 2013')), $memberships[2]['end_date']);
     $this->assertEquals('2013-12-01', $memberships[3]['end_date']);
 
-    //check start dates #1 should default to 1 Jan this year, #2 should be as entered
+    //check start dates #1 should default to 1 Jan this year, #2 should be as entered, 3 is from receive_date
     $this->assertEquals(date('Y-m-d', strtotime('07/22/2013')), $memberships[1]['join_date']);
     $this->assertEquals(date('Y-m-d', strtotime('07/03/2013')), $memberships[2]['join_date']);
-    $this->assertEquals(date('Y-m-d'), $memberships[3]['join_date']);
+    $this->assertEquals('2013-07-17', $memberships[3]['join_date']);
     $memberships = $this->callAPISuccess('Contribution', 'get', ['return' => ['total_amount', 'trxn_id']]);
     $this->assertEquals(3, $memberships['count']);
     foreach ($memberships['values'] as $key => $contribution) {
@@ -228,17 +224,19 @@ class CRM_Batch_Form_EntryTest extends CiviUnitTestCase {
   public function testProcessContribution($thousandSeparator): void {
     $this->setCurrencySeparators($thousandSeparator);
     $this->offsetDefaultPriceSet();
-    $form = new CRM_Batch_Form_Entry();
-    $params = $this->getContributionData();
-    $this->assertTrue($form->testProcessContribution($params));
-    $result = $this->callAPISuccess('contribution', 'get', ['return' => 'total_amount']);
-    $this->assertEquals(3, $result['count']);
-    foreach ($result['values'] as $contribution) {
-      $this->assertEquals($this->callAPISuccess('line_item', 'getvalue', [
-        'contribution_id' => $contribution['id'],
-        'return' => 'line_total',
+    $this->createTestEntity('Batch', ['name' => 'contributions', 'type_id:name' => 'Contribution', 'status_id:name' => 'Open', 'item_count' => 3, 'total' => 4500.45, 'data' => '{"values":[]}']);
+    $this->getTestForm('CRM_Batch_Form_Entry', $this->getContributionData(), ['id' => $this->ids['Batch']['default']])->processForm();
 
-      ]), $contribution['total_amount']);
+    $contributions = Contribution::get(FALSE)
+      ->addSelect('total_amount', 'financial_type_id')
+      ->execute();
+    $this->assertCount(3, $contributions);
+    foreach ($contributions as $contribution) {
+      $lineItem = LineItem::get(FALSE)
+        ->addWhere('contribution_id', '=', $contribution['id'])
+        ->execute()->single();
+      $this->assertEquals($lineItem['line_total'], $contribution['total_amount']);
+      $this->assertEquals($lineItem['financial_type_id'], $contribution['financial_type_id']);
     }
     $checkResult = $this->callAPISuccess('Contribution', 'get', ['check_number' => ['IS NOT NULL' => 1]]);
     $this->assertEquals(1, $checkResult['count']);
@@ -251,10 +249,10 @@ class CRM_Batch_Form_EntryTest extends CiviUnitTestCase {
    * CRM-18000 - Test start_date, end_date after renewal
    *
    * @throws \CRM_Core_Exception
-   * @throws \Civi\API\Exception\UnauthorizedException
    */
   public function testMembershipRenewalDates(): void {
-    $form = new CRM_Batch_Form_Entry();
+    CRM_Utils_Time::setTime(date('2026-01-14 13:00:08'));
+    $frozenTodayDate = '2026-01-14';
     foreach ([$this->contactID, $this->contactID2] as $contactID) {
       $membershipParams = [
         'membership_type_id' => $this->membershipTypeID2,
@@ -266,34 +264,68 @@ class CRM_Batch_Form_EntryTest extends CiviUnitTestCase {
       $this->contactMembershipCreate($membershipParams);
     }
 
+    // Create current membership (since today is frozen to 2026-01-01).
+    $this->createTestEntity('Membership', [
+      'membership_type_id' => $this->membershipTypeID2,
+      'contact_id' => $this->contactID3,
+      'start_date' => '01/01/2015',
+      'join_date' => '01/01/2010',
+      'end_date' => '12/31/2025',
+    ], 'current');
+
     $params = $this->getMembershipData();
-    //ensure membership renewal
+    // Specify membership renewal
     $params['member_option'] = [
       1 => 2,
       2 => 2,
+      3 => 2,
     ];
-    $params['field'][1]['membership_type'] = [0 => $this->organizationContactID2, 1 => $this->membershipTypeID2];
+    foreach ($params['field'] as $index => $inputRecord) {
+      $params['field'][$index]['membership_type'] = [0 => $this->ids['Contact']['organization_2'], 1 => $this->membershipTypeID2];
+    }
+    // Record one, receive date today.
     $params['field'][1]['receive_date'] = date('Y-m-d');
 
-    // explicitly specify start and end dates
-    $params['field'][2]['membership_type'] = [0 => $this->organizationContactID2, 1 => $this->membershipTypeID2];
+    // Record 2 explicitly specify start and end dates
     $params['field'][2]['membership_start_date'] = "2016-04-01";
     $params['field'][2]['membership_end_date'] = "2017-03-31";
-    $params['field'][2]['receive_date'] = "2016-04-01";
+    $params['field'][2]['receive_date'] = '2016-04-01';
 
-    $this->assertEquals(3.0, $form->testProcessMembership($params));
+    // Record 3 - our current record - let it calculate end date.
+    $params['field'][3]['membership_end_date'] = '';
+
+    $this->createTestEntity('Batch', ['name' => 'membership', 'status_id:name' => 'Open', 'type_id:name' => 'Membership', 'item_count' => 3, 'total' => 3]);
+    $this->getTestForm('CRM_Batch_Form_Entry', $params, ['id' => $this->ids['Batch']['default']])
+      ->processForm();
+    $batch = Batch::get()
+      ->execute()->single();
+    $this->assertEquals(4500, $batch['total']);
     $result = $this->callAPISuccess('Membership', 'get')['values'];
 
     // renewal dates should be from current if start_date and end_date is passed as NULL
-    $this->assertEquals(date('Y-m-d'), $result[1]['start_date']);
-    $endDate = date('Y-m-d', strtotime(date("Y-m-d") . " +1 year -1 day"));
+    $this->assertEquals($frozenTodayDate, $result[1]['start_date']);
+    $endDate = date('Y-m-d', strtotime($frozenTodayDate . " +1 year -1 day"));
     $this->assertEquals($endDate, $result[1]['end_date']);
+    $this->assertEquals('2013-07-22', $result[1]['join_date']);
     $this->assertEquals($params['field'][1]['member_campaign_id'], $result[1]['campaign_id']);
+    $membershipLog = MembershipLog::get()->addWhere('membership_id', '=', $result[1]['id'])
+      ->addOrderBy('id', 'DESC')
+      ->setLimit(1)->execute()->first();
+    $this->assertEquals($endDate, $membershipLog['end_date']);
+    $this->assertEquals($frozenTodayDate, $membershipLog['start_date']);
 
     // verify if the modified dates asserts with the dates passed above
     $this->assertEquals('2016-04-01', $result[2]['start_date']);
     $this->assertEquals('2017-03-31', $result[2]['end_date']);
     $this->assertTrue(empty($result[2]['campaign_id']));
+
+    $membershipLog = MembershipLog::get()->addWhere('membership_id', '=', $result[3]['id'])
+      ->addOrderBy('id', 'DESC')
+      ->setLimit(1)->execute()->first();
+    $this->assertEquals('2026-12-31', $membershipLog['end_date']);
+    $this->assertEquals('2015-01-01', $membershipLog['start_date']);
+    $this->assertEquals('2026-12-31', $result[3]['end_date']);
+    $this->assertEquals('2015-01-01', $result[3]['start_date']);
   }
 
   /**
@@ -397,7 +429,7 @@ class CRM_Batch_Form_EntryTest extends CiviUnitTestCase {
           'contribution_status_id' => 1,
         ],
         3 => [
-          'financial_type' => 1,
+          'financial_type' => 3,
           'total_amount' => $this->formatMoneyInput(1500.15),
           'receive_date' => '2013-07-24',
           'receive_date_time' => NULL,

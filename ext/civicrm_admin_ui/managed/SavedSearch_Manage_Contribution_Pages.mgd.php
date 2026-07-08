@@ -1,6 +1,11 @@
 <?php
 use CRM_CivicrmAdminUi_ExtensionUtil as E;
 
+// Temporary check can be removed when moving this file to the civi_contribute extension.
+if (!CRM_Core_Component::isEnabled('CiviContribute')) {
+  return [];
+}
+
 return [
   [
     'name' => 'SavedSearch_Manage_Contribution_Pages',
@@ -56,6 +61,7 @@ return [
           'classes' => [
             'table',
             'table-striped',
+            'crm-sticky-header',
           ],
           'pager' => [
             'show_count' => TRUE,
@@ -77,66 +83,30 @@ return [
             [
               'type' => 'field',
               'key' => 'title',
-              'dataType' => 'String',
-              'label' => E::ts('Title'),
+              'label' => 'Title',
               'sortable' => TRUE,
-              'cssRules' => [
-                [
-                  'disabled',
-                  'is_active',
-                  '=',
-                  FALSE,
-                ],
-              ],
             ],
             [
               'type' => 'field',
               'key' => 'id',
-              'dataType' => 'Integer',
-              'label' => E::ts('ID'),
+              'label' => 'ID',
               'sortable' => TRUE,
-              'cssRules' => [
-                [
-                  'disabled',
-                  'is_active',
-                  '=',
-                  FALSE,
-                ],
-              ],
             ],
             [
               'type' => 'field',
               'key' => 'is_active',
-              'dataType' => 'Boolean',
-              'label' => E::ts('Enabled?'),
+              'label' => 'Enabled',
               'sortable' => TRUE,
               'editable' => TRUE,
-              'cssRules' => [
-                [
-                  'disabled',
-                  'is_active',
-                  '=',
-                  FALSE,
-                ],
-              ],
             ],
             [
               'type' => 'field',
               'key' => 'financial_type_id:label',
-              'dataType' => 'Integer',
-              'label' => E::ts('Financial Type'),
+              'label' => 'Financial Type',
               'sortable' => TRUE,
-              'cssRules' => [
-                [
-                  'disabled',
-                  'is_active',
-                  '=',
-                  FALSE,
-                ],
-              ],
             ],
             [
-              'text' => E::ts('Links'),
+              'text' => 'Links',
               'style' => 'default',
               'size' => 'btn-xs',
               'icon' => 'fa-bars',
@@ -147,9 +117,9 @@ return [
                   'join' => '',
                   'target' => '_blank',
                   'icon' => 'fa-external-link',
-                  'text' => E::ts('Live Page'),
+                  'text' => 'Live Page',
                   'style' => 'default',
-                  'path' => 'civicrm/contribute/transact?reset=1&id=[id]',
+                  'path' => 'frontend://civicrm/contribute/transact?reset=1&id=[id]',
                   'condition' => [],
                 ],
                 [
@@ -158,9 +128,9 @@ return [
                   'join' => '',
                   'target' => '_blank',
                   'icon' => 'fa-external-link',
-                  'text' => E::ts('Test-drive'),
+                  'text' => 'Test-drive',
                   'style' => 'default',
-                  'path' => 'civicrm/contribute/transact?reset=1&id=[id]&action=preview',
+                  'path' => 'frontend://civicrm/contribute/transact?reset=1&id=[id]&action=preview',
                   'condition' => [],
                 ],
               ],
@@ -176,9 +146,9 @@ return [
                   'join' => '',
                   'target' => '',
                   'icon' => 'fa-search',
-                  'text' => E::ts('Find Contributions'),
+                  'text' => 'Find Contributions',
                   'style' => 'default',
-                  'path' => 'civicrm/contribute/search?contribution_page_id=[id]&force=1&reset=1',
+                  'path' => 'frontend://civicrm/contribute/search?contribution_page_id=[id]&force=1&reset=1',
                   'condition' => [],
                 ],
               ],
@@ -194,15 +164,16 @@ return [
                   'join' => '',
                   'target' => '',
                   'icon' => 'fa-pencil',
-                  'text' => E::ts('Edit'),
+                  'text' => 'Edit',
                   'style' => 'default',
                   'path' => '',
                   'condition' => [],
                 ],
                 [
                   'path' => 'civicrm/admin/contribute/manage?action=copy&gid=[id]',
+                  'csrf' => 'qfKey',
                   'icon' => 'fa-clone',
-                  'text' => E::ts('Clone'),
+                  'text' => 'Clone',
                   'style' => 'secondary',
                   'condition' => [],
                   'entity' => '',
@@ -215,18 +186,18 @@ return [
                   'entity' => 'ContributionPage',
                   'target' => 'crm-popup',
                   'icon' => 'fa-toggle-on',
-                  'text' => E::ts('Enable'),
+                  'text' => 'Enable',
                   'style' => 'default',
-                  'condition' => ['is_active', '=', FALSE],
+                  'condition' => [],
                 ],
                 [
                   'task' => 'disable',
                   'entity' => 'ContributionPage',
                   'target' => 'crm-popup',
                   'icon' => 'fa-toggle-off',
-                  'text' => E::ts('Disable'),
+                  'text' => 'Disable',
                   'style' => 'default',
-                  'condition' => ['is_active', '=', TRUE],
+                  'condition' => [],
                 ],
                 [
                   'entity' => 'ContributionPage',
@@ -234,7 +205,7 @@ return [
                   'join' => '',
                   'target' => 'crm-popup',
                   'icon' => 'fa-trash',
-                  'text' => E::ts('Delete'),
+                  'text' => 'Delete',
                   'style' => 'danger',
                   'path' => '',
                   'condition' => [],
@@ -246,7 +217,14 @@ return [
               'alignment' => 'text-right',
             ],
           ],
-          'button' => NULL,
+          'cssRules' => [
+            [
+              'disabled',
+              'is_active',
+              '=',
+              FALSE,
+            ],
+          ],
         ],
         'acl_bypass' => FALSE,
       ],

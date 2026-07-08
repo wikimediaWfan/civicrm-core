@@ -9,6 +9,9 @@
  +--------------------------------------------------------------------+
  */
 
+use Civi\Api4\Mailing;
+use Civi\Api4\MailingJob;
+
 /**
  * Class CRM_Mailing_BAO_MailingTest
  */
@@ -161,7 +164,7 @@ class CRM_Mailing_BAO_MailingTest extends CiviUnitTestCase {
   }
 
   /**
-   * Test verify that a disabled mailing group doesn't prvent access to the mailing generated with the group.
+   * Test verify that a disabled mailing group doesn't prevent access to the mailing generated with the group.
    */
   public function testGetMailingDisabledGroup(): void {
     $this->prepareForACLs();
@@ -171,7 +174,7 @@ class CRM_Mailing_BAO_MailingTest extends CiviUnitTestCase {
     $this->hookClass->setHook('civicrm_aclGroup', [$this, 'hook_civicrm_aclGroup']);
     CRM_Core_Config::singleton()->userPermissionClass->permissions = ['access CiviCRM', 'edit groups'];
     // Create dummy group and assign 2 contacts
-    $name = 'Test static group ' . substr(sha1(rand()), 0, 7);
+    $name = 'Test static group ' . bin2hex(random_bytes(4));
     $groupID = $this->groupCreate([
       'name' => $name,
       'title' => $name,
@@ -191,8 +194,9 @@ class CRM_Mailing_BAO_MailingTest extends CiviUnitTestCase {
       'id' => $groupID,
       'is_active' => 0,
     ]);
-    $groups = CRM_Mailing_BAO_Mailing::mailingACLIDs();
-    $this->assertTrue(in_array($groupID, $groups));
+
+    $mailingIds = CRM_Mailing_BAO_Mailing::mailingACLIDs();
+    $this->assertTrue(in_array($mailingID, $mailingIds));
     $this->cleanUpAfterACLs();
     $this->contactDelete($contactID);
   }
@@ -229,12 +233,8 @@ class CRM_Mailing_BAO_MailingTest extends CiviUnitTestCase {
       return;
     }
     //don't use api - you will get a loop
-    $sql = " SELECT * FROM civicrm_group";
-    $groups = [];
-    $dao = CRM_Core_DAO::executeQuery($sql);
-    while ($dao->fetch()) {
-      $groups[] = $dao->id;
-    }
+    $sql = "SELECT id FROM civicrm_group";
+    $groups = CRM_Core_DAO::executeQuery($sql)->fetchMap('id', 'id');
     if (!empty($allGroups)) {
       //all groups is empty if we really mean all groups but if a filter like 'is_disabled' is already applied
       // it is populated, ajax calls from Manage Groups will leave empty but calls from New Mailing pass in a filtered list
@@ -406,7 +406,26 @@ class CRM_Mailing_BAO_MailingTest extends CiviUnitTestCase {
   }
 
   /**
-   * Test That No BUlk Emails User Optt Out is resepected when constructing a mailing
+   * Test that the non-crud actions do not occur when creating a mailing using apiv4.
+   *
+   * @throws \CRM_Core_Exception
+   */
+  public function testApiV4DoesNotSchedule(): void {
+    $startRecipients = CRM_Core_DAO::executeQuery('SELECT id FROM civicrm_mailing_recipients ORDER BY id')->fetchMap('id', 'id');
+
+    $mailing = Mailing::create(FALSE)->setValues(['name' => 'bob', 'scheduled_date' => 'tomorrow'])->execute()->first();
+    $jobs = MailingJob::get(FALSE)->execute();
+    $this->assertEquals(0, $jobs->rowCount);
+    MailingJob::create(FALSE)->setValues([
+      'mailing_id' => $mailing['id'],
+    ])->execute();
+
+    $endRecipients = CRM_Core_DAO::executeQuery('SELECT id FROM civicrm_mailing_recipients ORDER BY id')->fetchMap('id', 'id');
+    $this->assertEquals($startRecipients, $endRecipients, 'In APIv4, basic CRUD for Mailing records should not modify recipients');
+  }
+
+  /**
+   * Test that No Bulk Emails User Out is respected when constructing a mailing
    */
   public function testGetReceipientNoBulkEmails(): void {
     // Set up groups; 3 standard, 4 smart
@@ -621,7 +640,11 @@ class CRM_Mailing_BAO_MailingTest extends CiviUnitTestCase {
       'groups' => ['include' => [$groupID]],
       'scheduled_date' => 'now',
     ];
-    $this->callAPISuccess('Mailing', 'create', $params);
+    $mailing = $this->callAPISuccess('Mailing', 'create', $params);
+    $this->assertEquals('Scheduled', $mailing['values'][$mailing['id']]['status']);
+    // Query from the DB as the problem was that the DB was not being updated but the mailing object returned by the API was
+    $mailingStatus = CRM_Core_DAO::singleValueQuery("SELECT status FROM civicrm_mailing WHERE id = %1", [1 => [$mailing['id'], 'Positive']]);
+    $this->assertEquals('Scheduled', $mailingStatus);
   }
 
   /**

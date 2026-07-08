@@ -51,22 +51,22 @@
 
 {if !empty($form.activity_details.html)}
     <tr class="crm-case-form-block-activity_details">
-        <td class="label">{$form.activity_details.label}{help id="id-details" activityTypeFile=$activityTypeFile file="CRM/Case/Form/Case.hlp"}</td>
+        <td class="label">{$form.activity_details.label}{help id="activity_details" activityTypeFile=$activityTypeFile file="CRM/Case/Form/Case.hlp"}</td>
         <td class="view-value">{$form.activity_details.html|crmStripAlternatives}</td>
     </tr>
 {/if}
 
 {* custom data group *}
 {* This shows ACTIVITY custom fields, as opposed to CASE custom fields, so is not a duplicate of the other custom data block below. *}
-{if $groupTree}
-    <tr>
-       <td colspan="2">{include file="CRM/Custom/Form/CustomData.tpl" skipTitle=0}</td>
-    </tr>
-{/if}
+<tr class="crm-activity-form-block-custom_data">
+  <td colspan="2">
+    {include file="CRM/common/customDataBlock.tpl" customDataType='Activity' customDataSubType=$activityTypeID cid=false}
+  </td>
+</tr>
 
 {if !empty($form.activity_subject.html)}
     <tr class="crm-case-form-block-activity_subject">
-       <td class="label">{$form.activity_subject.label}{help id="id-activity_subject" activityTypeFile=$activityTypeFile file="CRM/Case/Form/Case.hlp"}</td>
+       <td class="label">{$form.activity_subject.label}{help id="activity_subject" activityTypeFile=$activityTypeFile file="CRM/Case/Form/Case.hlp"}</td>
        <td>{$form.activity_subject.html|crmAddClass:huge}</td>
     </tr>
 {/if}
@@ -97,7 +97,7 @@
 {* This shows CASE custom fields, as opposed to ACTIVITY custom fields, so is not a duplicate of the other custom data block above. *}
 <tr class="crm-case-form-block-custom_data">
     <td colspan="2">
-      {include file="CRM/common/customDataBlock.tpl"}
+      {include file="CRM/common/customDataBlock.tpl" customDataType='Case' customDataSubType=$caseTypeID cid=false}
     </td>
 </tr>
 

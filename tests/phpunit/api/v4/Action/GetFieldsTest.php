@@ -26,10 +26,12 @@ use Civi\Api4\Address;
 use Civi\Api4\Campaign;
 use Civi\Api4\Contact;
 use Civi\Api4\Contribution;
+use Civi\Api4\ContributionSoft;
 use Civi\Api4\CustomGroup;
 use Civi\Api4\Email;
 use Civi\Api4\EntityTag;
 use Civi\Api4\OptionValue;
+use Civi\Api4\PCP;
 use Civi\Api4\Tag;
 use Civi\Api4\UserJob;
 use Civi\Api4\Utils\CoreUtil;
@@ -73,6 +75,12 @@ class GetFieldsTest extends Api4TestBase implements TransactionalInterface {
     $this->assertEquals(['name', 'label', 'icon'], $fields['contact_type']['suffixes']);
     $this->assertEquals(['name', 'label', 'icon'], $fields['contact_sub_type']['suffixes']);
 
+    // Check `readonly`
+    $this->assertTrue($fields['display_name']['readonly']);
+    $this->assertTrue($fields['sort_name']['readonly']);
+    $this->assertFalse($fields['first_name']['readonly']);
+    $this->assertTrue($fields['id']['readonly']);
+
     // Check `required` and `nullable`
     $this->assertFalse($fields['is_opt_out']['required']);
     $this->assertFalse($fields['is_deleted']['required']);
@@ -80,6 +88,20 @@ class GetFieldsTest extends Api4TestBase implements TransactionalInterface {
     $this->assertFalse($fields['id']['nullable']);
     $this->assertFalse($fields['id']['required']);
     $this->assertNull($fields['id']['default_value']);
+
+    $this->assertEquals(['import', 'export', 'duplicate_matching'], $fields['id']['usage']);
+
+    $this->assertSame('contact_type', $fields['contact_sub_type']['input_attrs']['control_field']);
+    $this->assertTrue($fields['contact_sub_type']['input_attrs']['multiple']);
+
+    // Check date format
+    $this->assertTrue($fields['birth_date']['input_attrs']['date']);
+    $this->assertFalse($fields['birth_date']['input_attrs']['time']);
+    $this->assertArrayNotHasKey('format_type', $fields['birth_date']['input_attrs']);
+
+    // Check extra fields
+    $this->assertEquals('Integer', $fields['address_primary']['data_type']);
+    $this->assertEquals('Email', $fields['email_primary']['fk_entity']);
   }
 
   public function testComponentFields(): void {
@@ -165,6 +187,7 @@ class GetFieldsTest extends Api4TestBase implements TransactionalInterface {
     $this->assertTrue($actFields['phone_id']['deprecated']);
     $this->assertEquals('now', $actFields['created_date']['default_value']);
     $this->assertEquals('now', $actFields['activity_date_time']['default_value']);
+    $this->assertEquals('Date', $actFields['activity_date_time']['input_type']);
 
     $getFields = Activity::getFields(FALSE)
       ->setAction('get')
@@ -211,9 +234,19 @@ class GetFieldsTest extends Api4TestBase implements TransactionalInterface {
       ->setLoadOptions(['id', 'name', 'label', 'description', 'color'])
       ->execute()->single();
     $this->assertCount(1, $tagField['options']);
+    $this->assertIsInt($tagField['options'][0]['id']);
     $this->assertEquals('Act_Tag', $tagField['options'][0]['name']);
     $this->assertEquals('Test tag for activities', $tagField['options'][0]['description']);
     $this->assertEquals('#aaaaaa', $tagField['options'][0]['color']);
+  }
+
+  public function testIdIsInt(): void {
+    $field = ContributionSoft::getFields(FALSE)
+      ->addWhere('name', '=', 'soft_credit_type_id')
+      ->setLoadOptions(['id', 'name'])
+      ->execute()->single();
+
+    $this->assertIsInt($field['options'][0]['id']);
   }
 
   public function testGetSuffixes(): void {
@@ -243,8 +276,9 @@ class GetFieldsTest extends Api4TestBase implements TransactionalInterface {
   public function testDynamicFks(): void {
     $tagFields = EntityTag::getFields(FALSE)
       ->execute()->indexBy('name');
+    $this->assertEquals('Tag', $tagFields['tag_id']['fk_entity']);
     $this->assertEmpty($tagFields['entity_id']['fk_entity']);
-    $this->assertContains('Activity', $tagFields['entity_id']['dfk_entities']);
+    $this->assertEquals('Activity', $tagFields['entity_id']['dfk_entities']['civicrm_activity']);
     $this->assertEquals('entity_table', $tagFields['entity_id']['input_attrs']['control_field']);
 
     $tagFields = EntityTag::getFields(FALSE)
@@ -252,14 +286,25 @@ class GetFieldsTest extends Api4TestBase implements TransactionalInterface {
       ->execute()->indexBy('name');
     // fk_entity should be specific to specified entity_table, but dfk_entities should still contain all values
     $this->assertEquals('Activity', $tagFields['entity_id']['fk_entity']);
-    $this->assertContains('Contact', $tagFields['entity_id']['dfk_entities']);
+    $this->assertEquals('Contact', $tagFields['entity_id']['dfk_entities']['civicrm_contact']);
     $this->assertEquals('id', $tagFields['entity_id']['fk_column']);
 
     $tagFields = EntityTag::getFields(FALSE)
       ->addValue('entity_table:name', 'Contact')
       ->execute()->indexBy('name');
     $this->assertEquals('Contact', $tagFields['entity_id']['fk_entity']);
-    $this->assertContains('SavedSearch', $tagFields['entity_id']['dfk_entities']);
+    $this->assertEquals('SavedSearch', $tagFields['entity_id']['dfk_entities']['civicrm_saved_search']);
+
+    $pcpFields = PCP::getFields(FALSE)
+      ->addValue('page_type:name', 'ContributionPage')
+      ->setLoadOptions(['id', 'name', 'label'])
+      ->execute()->indexBy('name');
+    $this->assertEquals('ContributionPage', $pcpFields['page_id']['fk_entity']);
+    $this->assertEquals('ContributionPage', $pcpFields['page_id']['dfk_entities']['contribute']);
+    $this->assertEquals('Event', $pcpFields['page_id']['dfk_entities']['event']);
+    $options = array_column($pcpFields['page_type']['options'], 'name', 'id');
+    $this->assertEquals('ContributionPage', $options['contribute']);
+    $this->assertEquals('Event', $options['event']);
   }
 
   public function testEmptyOptionListIsReturnedAsAnArray(): void {
@@ -315,7 +360,7 @@ class GetFieldsTest extends Api4TestBase implements TransactionalInterface {
     $this->assertEquals(['First', 'Second', 'Third', 'Fourth'], array_column($sampleFields, 'title'));
   }
 
-  public function entityFieldsWithDependencies(): array {
+  public static function entityFieldsWithDependencies(): array {
     return [
       ['Contact', ['contact_type', 'contact_sub_type']],
       ['Case', ['case_type_id', 'status_id']],

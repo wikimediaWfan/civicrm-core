@@ -24,7 +24,7 @@ use Civi\Api4\MockBasicEntity;
 use Civi\Api4\Utils\CoreUtil;
 use Civi\Core\Event\GenericHookEvent;
 use Civi\Test\CiviEnvBuilder;
-use Civi\Test\HookInterface;
+use Civi\Core\HookInterface;
 use Civi\Test\Invasive;
 use Civi\Test\TransactionalInterface;
 
@@ -96,13 +96,21 @@ class BasicActionsTest extends Api4TestBase implements HookInterface, Transactio
       ->addRecord(['identifier' => $id2, 'group:label' => 'Second'])
       ->addRecord(['foo' => 'three'])
       ->addDefault('color', 'pink')
-      ->setReload(TRUE)
+      ->setReload(['*', 'group:name'])
       ->execute()
       ->indexBy('identifier');
 
+    // 3 total records saved
+    $this->assertEquals(3, $result->countFetched());
+    // 2 records updated
+    $this->assertEquals(2, $result->countMatched());
+
+    // Check updated values
     $this->assertTrue(5 === $result[$id1]['weight']);
     $this->assertEquals('new', $result[$id2]['foo']);
-    $this->assertEquals('two', $result[$id2]['group']);
+    $this->assertEquals('two', $result[$id2]['group:name']);
+    // We didn't select this field in the `reload` param
+    $this->assertFalse(isset($result[$id2]['group:label']));
     $this->assertEquals('three', $result->last()['foo']);
     $this->assertCount(3, $result);
     foreach ($result as $item) {
@@ -175,6 +183,30 @@ class BasicActionsTest extends Api4TestBase implements HookInterface, Transactio
     $result = MockBasicEntity::batchFrobnicate()->addWhere('color', '=', 'blue')->execute();
     $this->assertEquals(2, count($result));
     $this->assertEquals([400, 1600], \CRM_Utils_Array::collect('frobnication', (array) $result));
+  }
+
+  public function testBatchActionErrorHandling(): void {
+    $objects = [
+      ['group' => 'one', 'color' => 'blue', 'number' => 20],
+      ['group' => 'one', 'color' => 'blue', 'number' => 30],
+    ];
+    $this->replaceRecords($objects);
+    $message = 'Test error message';
+
+    $action = new \Civi\Api4\Generic\BasicBatchAction('MockBasicEntity', 'batchFail', function($item) use ($message) {
+      throw new \Exception($message, 999);
+    });
+    $action->setCheckPermissions(FALSE);
+    $action->addWhere('color', '=', 'blue');
+
+    $result = $action->execute();
+    $this->assertCount(0, $result);
+    $errors = $result->getErrors();
+    $this->assertCount(2, $errors);
+    $this->assertInstanceOf(\Civi\Api4\Generic\Error::class, $errors[0]);
+    $this->assertEquals(\Psr\Log\LogLevel::ERROR, $errors[0]->getLevel());
+    $this->assertSame($message, $errors[0]->getMessage());
+    $this->assertSame(999, $errors[0]->getCode());
   }
 
   public function testGetFields(): void {
@@ -350,10 +382,53 @@ class BasicActionsTest extends Api4TestBase implements HookInterface, Transactio
     $this->assertEquals('one', $result->first()['group']);
 
     $result = MockBasicEntity::get()
+      ->addWhere('fruit:name', 'CONTAINS', ['apple', 'pear'])
+      ->execute();
+    $this->assertCount(1, $result);
+    $this->assertEquals('one', $result->first()['group']);
+
+    $result = MockBasicEntity::get()
+      ->addWhere('fruit:name', 'CONTAINS ONE OF', 'apple')
+      ->execute();
+    $this->assertCount(1, $result);
+    $this->assertEquals('one', $result->first()['group']);
+
+    $result = MockBasicEntity::get()
+      ->addWhere('fruit:name', 'CONTAINS ONE OF', ['apple', 'pear'])
+      ->execute();
+    $this->assertCount(2, $result);
+
+    $result = MockBasicEntity::get()
       ->addWhere('fruit:name', 'NOT CONTAINS', 'apple')
       ->execute();
     $this->assertCount(1, $result);
     $this->assertEquals('two', $result->first()['group']);
+
+    $result = MockBasicEntity::get()
+      ->addWhere('fruit:name', 'NOT CONTAINS ONE OF', ['apple', 'pear'])
+      ->execute();
+    $this->assertCount(0, $result);
+
+    $result = MockBasicEntity::get()
+      ->addWhere('fruit:name', 'NOT CONTAINS ONE OF', 'apple')
+      ->execute();
+    $this->assertCount(1, $result);
+    $this->assertEquals('two', $result->first()['group']);
+
+    $result = MockBasicEntity::get()
+      ->addWhere('fruit:name', 'NOT CONTAINS ONE OF', ['apple', 'apple'])
+      ->execute();
+    $this->assertCount(1, $result);
+
+    $result = MockBasicEntity::get()
+      ->addWhere('fruit:name', 'NOT CONTAINS', ['apple', 'pear'])
+      ->execute();
+    $this->assertCount(1, $result);
+
+    $result = MockBasicEntity::get()
+      ->addWhere('fruit:name', 'NOT CONTAINS', ['apple', 'banana'])
+      ->execute();
+    $this->assertCount(2, $result);
 
     $result = MockBasicEntity::get()
       ->addWhere('fruit:name', 'CONTAINS', 'pear')

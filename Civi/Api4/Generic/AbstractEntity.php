@@ -33,7 +33,7 @@ use Civi\Api4\Utils\ReflectionUtils;
  *
  * @see https://lab.civicrm.org/extensions/api4example
  */
-abstract class AbstractEntity {
+abstract class AbstractEntity implements EntityInterface {
 
   /**
    * @param bool $checkPermissions
@@ -68,6 +68,7 @@ abstract class AbstractEntity {
   /**
    * Returns a list of permissions needed to access the various actions in this api.
    *
+   * @internal
    * @return array
    */
   public static function permissions() {
@@ -82,7 +83,7 @@ abstract class AbstractEntity {
   /**
    * Get entity name from called class
    *
-   * @return string
+   * @internal
    */
   public static function getEntityName(): string {
     return CoreUtil::stripNamespace(static::class);
@@ -130,12 +131,13 @@ abstract class AbstractEntity {
    * @return \CRM_Core_DAO|string|null
    */
   protected static function getDaoName(): ?string {
-    return \CRM_Core_DAO_AllCoreTables::getFullName(static::getEntityName());
+    return \CRM_Core_DAO_AllCoreTables::getDAONameForEntity(static::getEntityName());
   }
 
   /**
    * Reflection function called by Entity::get()
    *
+   * @internal
    * @see \Civi\Api4\Action\Entity\Get
    * @return array{name: string, title: string, description: string, title_plural: string, type: string, paths: array, class: string, primary_key: array, searchable: string, dao: string, label_field: string, icon: string}
    */
@@ -158,10 +160,10 @@ abstract class AbstractEntity {
     if ($dao) {
       $info['paths'] = $dao::getEntityPaths();
       $info['primary_key'] = $dao::$_primaryKey;
-      $info['icon'] = $dao::$_icon;
-      $info['label_field'] = $dao::$_labelField;
+      $info['icon'] = $dao::getEntityIcon($entityName);
+      $info['label_field'] = $dao::getLabelField();
       $info['dao'] = $dao;
-      $info['table_name'] = $dao::$_tableName;
+      $info['table_name'] = $dao::getTableName();
       $info['icon_field'] = (array) ($dao::fields()['icon']['name'] ?? NULL);
       if (method_exists($dao, 'indices')) {
         foreach (\CRM_Utils_Array::findAll($dao::indices(FALSE), ['unique' => TRUE, 'localizable' => FALSE]) as $index) {

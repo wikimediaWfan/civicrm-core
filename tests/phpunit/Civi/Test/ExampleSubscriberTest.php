@@ -44,12 +44,13 @@ class ExampleSubscriberTest extends \PHPUnit\Framework\TestCase implements Headl
     parent::tearDown();
   }
 
-  public static function getSubscribedEvents() {
+  public static function getSubscribedEvents(): array {
     return [
       'civi.api.resolve' => 'myCiviApiResolve',
       'civi.api.prepare' => ['myCiviApiPrepare', 1234],
       'hook_civicrm_alterContent' => ['myAlterContentObject', -7000],
       '&hook_civicrm_alterContent' => ['myAlterContentParams', -8000],
+      'civi.cache.metadata.clear' => 'myCacheClear',
     ];
   }
 
@@ -69,6 +70,10 @@ class ExampleSubscriberTest extends \PHPUnit\Framework\TestCase implements Headl
     $content .= ' ' . __FUNCTION__;
   }
 
+  public function myCacheClear(GenericHookEvent $event): void {
+    $this->tracker['civi.cache.metadata.clear'][__FUNCTION__] = TRUE;
+  }
+
   public function testPageOutput(): void {
     ob_start();
     $p = new Main();
@@ -84,6 +89,12 @@ class ExampleSubscriberTest extends \PHPUnit\Framework\TestCase implements Headl
     \civicrm_api3('Contact', 'getfields', []);
     $this->assertEquals(['myCiviApiResolve' => TRUE], $this->tracker['civi.api.resolve']);
     $this->assertEquals(['myCiviApiPrepare' => TRUE], $this->tracker['civi.api.prepare']);
+  }
+
+  public function testCacheClearEvent(): void {
+    $this->tracker['civi.cache.metadata.clear'] = NULL;
+    \Civi::cache('metadata')->clear();
+    $this->assertEquals(['myCacheClear' => TRUE], $this->tracker['civi.cache.metadata.clear']);
   }
 
 }

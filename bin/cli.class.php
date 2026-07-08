@@ -28,8 +28,8 @@ class civicrm_cli {
    * via the command line
    * @var array
    */
-  public $_required_arguments = array('action', 'entity');
-  public $_additional_arguments = array();
+  public $_required_arguments = ['action', 'entity'];
+  public $_additional_arguments = [];
   public $_entity = NULL;
   public $_action = NULL;
   public $_output = FALSE;
@@ -50,9 +50,9 @@ class civicrm_cli {
    * array that is passed to civicrm_api
    * @var array
    */
-  public $_params = array('version' => 3);
+  public $_params = ['version' => 3];
 
-  public $_errors = array();
+  public $_errors = [];
 
   /**
    * @return bool
@@ -220,9 +220,19 @@ class civicrm_cli {
     if (ord($_SERVER['SCRIPT_NAME']) != 47) {
       $_SERVER['SCRIPT_NAME'] = '/' . $_SERVER['SCRIPT_NAME'];
     }
-
+    $isJoomla = FALSE;
+    if (str_contains(__FILE__, 'administrator/components/com_civicrm/civicrm/')) {
+      $isJoomla = TRUE;
+      global $civicrm_root;
+    }
     $civicrm_root = dirname(__DIR__);
     chdir($civicrm_root);
+    if ($isJoomla && !class_exists('CRM_Core_ClassLoader')) {
+      require_once $civicrm_root . '/CRM/Utils/System/Base.php';
+      require_once $civicrm_root . '/CRM/Utils/System/Joomla.php';
+      $joomlaClass = new CRM_Utils_System_Joomla();
+      $joomlaClass->loadJoomlaFramework();
+    }
     if (getenv('CIVICRM_SETTINGS')) {
       require_once getenv('CIVICRM_SETTINGS');
     }
@@ -249,7 +259,7 @@ class civicrm_cli {
     $class = 'CRM_Utils_System_' . $this->_config->userFramework;
 
     $cms = new $class();
-    if (!CRM_Utils_System::loadBootstrap(array(), FALSE, FALSE, $civicrm_root)) {
+    if (!CRM_Utils_System::loadBootstrap([], FALSE, FALSE, $civicrm_root)) {
       $this->_log(ts("Failed to bootstrap CMS"));
       return FALSE;
     }
@@ -263,11 +273,11 @@ class civicrm_cli {
 
     if (!empty($this->_user)) {
       if (!CRM_Utils_System::authenticateScript(TRUE, $this->_user, $this->_password, TRUE, FALSE, FALSE)) {
-        $this->_log(ts("Failed to login as %1. Wrong username or password.", array('1' => $this->_user)));
+        $this->_log(ts("Failed to login as %1. Wrong username or password.", ['1' => $this->_user]));
         return FALSE;
       }
       if (($this->_config->userFramework == 'Joomla' && !$cms->loadUser($this->_user, $this->_password)) || !$cms->loadUser($this->_user)) {
-        $this->_log(ts("Failed to login as %1", array('1' => $this->_user)));
+        $this->_log(ts("Failed to login as %1", ['1' => $this->_user]));
         return FALSE;
       }
     }
@@ -283,7 +293,7 @@ class civicrm_cli {
       $index = '_' . $var;
       if (empty($this->$index)) {
         $missing_arg = '--' . $var;
-        $this->_log(ts("The %1 argument is required", array(1 => $missing_arg)));
+        $this->_log(ts("The %1 argument is required", [1 => $missing_arg]));
         $this->_log($this->_getUsage());
         return FALSE;
       }
@@ -314,7 +324,7 @@ class civicrm_cli {
     $out .= "  --output will pretty print the result from the api call\n";
     $out .= "  --json will print the result from the api call as JSON\n";
     $out .= "  PARAMS is one or more --param=value combinations to pass to the api\n";
-    return ts($out);
+    return $out;
   }
 
   /**
@@ -338,7 +348,7 @@ class civicrm_cli_csv_exporter extends civicrm_cli {
   /**
    */
   public function __construct() {
-    $this->_required_arguments = array('entity');
+    $this->_required_arguments = ['entity'];
     parent::initialize();
   }
 
@@ -351,7 +361,6 @@ class civicrm_cli_csv_exporter extends civicrm_cli {
     }
 
     $out = fopen("php://output", 'w');
-    fputcsv($out, $this->columns, $this->separator, '"');
 
     $this->row = 1;
     $result = civicrm_api($this->_entity, 'Get', $this->_params);
@@ -366,7 +375,7 @@ class civicrm_cli_csv_exporter extends civicrm_cli {
       foreach ($row as &$field) {
         if (is_array($field)) {
           //convert to string
-          $field = implode($field, CRM_Core_DAO::VALUE_SEPARATOR) . CRM_Core_DAO::VALUE_SEPARATOR;
+          $field = implode(CRM_Core_DAO::VALUE_SEPARATOR, $field) . CRM_Core_DAO::VALUE_SEPARATOR;
         }
       }
       fputcsv($out, $row, $this->separator, '"');
@@ -390,8 +399,8 @@ class civicrm_cli_csv_file extends civicrm_cli {
   /**
    */
   public function __construct() {
-    $this->_required_arguments = array('entity', 'file');
-    $this->_additional_arguments = array('f' => 'file');
+    $this->_required_arguments = ['entity', 'file'];
+    $this->_additional_arguments = ['f' => 'file'];
     parent::initialize();
   }
 
@@ -407,17 +416,17 @@ class civicrm_cli_csv_file extends civicrm_cli {
     }
 
     //header
-    $header = fgetcsv($handle, 0, $this->separator);
+    $header = fgetcsv($handle, 0, $this->separator, '"', '');
     // In case fgetcsv couldn't parse the header and dumped the whole line in 1 array element
     // Try a different separator char
     if (count($header) == 1) {
       $this->separator = ";";
       rewind($handle);
-      $header = fgetcsv($handle, 0, $this->separator);
+      $header = fgetcsv($handle, 0, $this->separator, '"', '');
     }
 
     $this->header = $header;
-    while (($data = fgetcsv($handle, 0, $this->separator)) !== FALSE) {
+    while (($data = fgetcsv($handle, 0, $this->separator, '"', '')) !== FALSE) {
       // skip blank lines
       if (count($data) == 1 && is_null($data[0])) {
         continue;
@@ -441,7 +450,7 @@ class civicrm_cli_csv_file extends civicrm_cli {
    * @return array
    */
   public function convertLine($data) {
-    $params = array();
+    $params = [];
     foreach ($this->header as $i => $field) {
       //split any multiselect data, denoted with CRM_Core_DAO::VALUE_SEPARATOR
       if (strpos($data[$i], CRM_Core_DAO::VALUE_SEPARATOR) !== FALSE) {

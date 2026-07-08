@@ -11,7 +11,7 @@ if (!defined('CIVI_SETUP')) {
 
 \Civi\Setup::dispatcher()
   ->addListener('civi.setup.uninstallDatabase', function (\Civi\Setup\Event\UninstallDatabaseEvent $e) {
-    $supportedCms = array('Drupal', 'Backdrop');
+    $supportedCms = ['Drupal', 'Backdrop'];
     if (!in_array($e->getModel()->cms, $supportedCms)) {
       return;
     }
@@ -23,7 +23,7 @@ if (!defined('CIVI_SETUP')) {
     // more surgical approach would get messy (due to variations of session-encoding),
     // and... it seems to work...
 
-    db_query('UPDATE sessions SET session = NULL');
+    db_query('UPDATE sessions SET session = ?', ['']);
 
     //    foreach(db_query('SELECT sid FROM sessions') as $sid) {
     //      $sessionResult = db_query('SELECT session FROM sessions WHERE sid = :sid', array(

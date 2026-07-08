@@ -1,6 +1,11 @@
 <?php
 use CRM_CivicrmAdminUi_ExtensionUtil as E;
 
+// Temporary check can be removed when moving this file to the civi_contribute extension.
+if (!CRM_Core_Component::isEnabled('CiviContribute')) {
+  return [];
+}
+
 return [
   [
     'name' => 'SavedSearch_Administer_Financial_Types',
@@ -77,6 +82,7 @@ return [
           'classes' => [
             'table',
             'table-striped',
+            'crm-sticky-header',
           ],
           'pager' => [
             'show_count' => TRUE,
@@ -94,46 +100,40 @@ return [
             [
               'type' => 'field',
               'key' => 'name',
-              'dataType' => 'String',
-              'label' => E::ts('Name'),
+              'label' => 'Name',
               'sortable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'description',
-              'dataType' => 'String',
-              'label' => E::ts('Description'),
+              'label' => 'Description',
               'sortable' => TRUE,
               'editable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'GROUP_CONCAT_FinancialType_EntityFinancialAccount_FinancialAccount_01_name',
-              'dataType' => 'String',
-              'label' => E::ts('Financial Accounts'),
+              'label' => 'Financial Accounts',
               'sortable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'is_deductible',
-              'dataType' => 'Boolean',
-              'label' => E::ts('Tax-Deductible'),
-              'sortable' => TRUE,
-              'editable' => TRUE,
-            ],
-            [
-              'type' => 'field',
-              'key' => 'is_reserved',
-              'dataType' => 'Boolean',
-              'label' => E::ts('Reserved'),
+              'label' => 'Tax-Deductible',
               'sortable' => TRUE,
               'editable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'is_active',
-              'dataType' => 'Boolean',
-              'label' => E::ts('Enabled'),
+              'label' => 'Enabled',
+              'sortable' => TRUE,
+              'editable' => TRUE,
+            ],
+            [
+              'type' => 'field',
+              'key' => 'is_reserved',
+              'label' => 'Reserved',
               'sortable' => TRUE,
               'editable' => TRUE,
             ],
@@ -143,7 +143,7 @@ return [
                 [
                   'path' => 'civicrm/admin/financial/financialType/accounts/list#/?entity_id=[id]',
                   'icon' => 'fa-external-link',
-                  'text' => E::ts('Accounts'),
+                  'text' => 'Accounts',
                   'style' => 'default',
                   'condition' => [],
                   'entity' => '',
@@ -160,7 +160,7 @@ return [
               'links' => [
                 [
                   'icon' => 'fa-pencil',
-                  'text' => E::ts('Edit'),
+                  'text' => 'Edit',
                   'style' => 'default',
                   'condition' => [],
                   'entity' => 'FinancialType',
@@ -173,22 +173,22 @@ return [
                   'entity' => 'FinancialType',
                   'target' => 'crm-popup',
                   'icon' => 'fa-toggle-on',
-                  'text' => E::ts('Enable'),
+                  'text' => 'Enable',
                   'style' => 'default',
-                  'condition' => ['is_active', '=', FALSE],
+                  'condition' => [],
                 ],
                 [
                   'task' => 'disable',
                   'entity' => 'FinancialType',
                   'target' => 'crm-popup',
                   'icon' => 'fa-toggle-off',
-                  'text' => E::ts('Disable'),
+                  'text' => 'Disable',
                   'style' => 'default',
-                  'condition' => ['is_active', '=', TRUE],
+                  'condition' => [],
                 ],
                 [
                   'icon' => 'fa-trash',
-                  'text' => E::ts('Delete'),
+                  'text' => 'Delete',
                   'style' => 'danger',
                   'condition' => [],
                   'entity' => 'FinancialType',
@@ -208,7 +208,7 @@ return [
               'action' => 'add',
               'target' => 'crm-popup',
               'style' => 'primary',
-              'text' => E::ts('Add Financial Type'),
+              'text' => 'Add Financial Type',
               'icon' => 'fa-plus',
             ],
           ],

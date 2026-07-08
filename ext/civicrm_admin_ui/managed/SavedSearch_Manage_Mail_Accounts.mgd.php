@@ -1,6 +1,10 @@
 <?php
-
 use CRM_CivicrmAdminUi_ExtensionUtil as E;
+
+// Temporary check can be removed when moving this file to the civi_mail extension.
+if (!CRM_Core_Component::isEnabled('CiviMail')) {
+  return [];
+}
 
 // This SearchDisplay shows an editable-in-place field for Enabled? for all rows, including the bounce processing mail account, which cannot actually be disabled (you can change it to No, but it won't actually be disabled). So this is FIXME for when we can set rows to edit-in-place conditionally.
 return [
@@ -33,7 +37,9 @@ return [
             'is_default',
           ],
           'orderBy' => [],
-          'where' => [],
+          'where' => [
+            ['domain_id:name', '=', 'current_domain'],
+          ],
           'groupBy' => [],
           'join' => [],
           'having' => [],
@@ -69,73 +75,73 @@ return [
             [
               'type' => 'field',
               'key' => 'name',
-              'dataType' => 'String',
-              'label' => E::ts('Name'),
+              'label' => 'Name',
               'sortable' => TRUE,
+              'editable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'server',
-              'dataType' => 'String',
-              'label' => E::ts('Server'),
+              'label' => 'Server',
               'sortable' => TRUE,
+              'editable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'username',
-              'dataType' => 'String',
-              'label' => E::ts('Username'),
+              'label' => 'Username',
               'sortable' => TRUE,
+              'editable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'localpart',
-              'dataType' => 'String',
-              'label' => E::ts('Localpart'),
+              'label' => 'Localpart',
               'sortable' => TRUE,
+              'editable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'domain',
-              'dataType' => 'String',
-              'label' => E::ts('Domain'),
+              'label' => 'Domain',
               'sortable' => TRUE,
+              'editable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'return_path',
-              'dataType' => 'String',
-              'label' => E::ts('Return-Path'),
+              'label' => 'Return-Path',
               'sortable' => TRUE,
+              'editable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'protocol:label',
-              'dataType' => 'String',
-              'label' => E::ts('Protocol'),
+              'label' => 'Protocol',
               'sortable' => TRUE,
+              'editable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'source',
-              'dataType' => 'String',
-              'label' => E::ts('Mail Folder'),
+              'label' => 'Mail Folder',
               'sortable' => TRUE,
+              'editable' => TRUE,
             ],
             [
               'type' => 'field',
               'key' => 'is_ssl',
-              'dataType' => 'Boolean',
-              'label' => E::ts('Use SSL?'),
+              'label' => 'Use SSL',
               'sortable' => TRUE,
+              'editable' => TRUE,
             ],
             [
               'type' => 'html',
               'key' => 'is_default',
-              'dataType' => 'Boolean',
-              'label' => E::ts('Used For'),
+              'label' => 'Used For',
               'sortable' => TRUE,
-              'rewrite' => '{if "[is_default]" == "' . E::ts('Yes') . '"}' . E::ts('Bounce Processing <strong>(Default)</strong>') . '{else}' . E::ts('Email-to-Activity') . '{/if}',
+              'editable' => TRUE,
+              'rewrite' => '{if $is_default}{ts}Bounce Processing{/ts} <strong>{ts}(Default){/ts}</strong>{else}{ts}Email-to-Activity{/ts}{/if}',
             ],
             [
               'text' => '',
@@ -149,7 +155,7 @@ return [
                   'join' => '',
                   'target' => 'crm-popup',
                   'icon' => 'fa-pencil',
-                  'text' => E::ts('Edit'),
+                  'text' => 'Edit',
                   'style' => 'default',
                   'path' => '',
                   'condition' => [],
@@ -160,7 +166,7 @@ return [
                   'join' => '',
                   'target' => 'crm-popup',
                   'icon' => 'fa-trash',
-                  'text' => E::ts('Delete'),
+                  'text' => 'Delete',
                   'style' => 'danger',
                   'path' => '',
                   'condition' => [
@@ -177,6 +183,7 @@ return [
           'classes' => [
             'table',
             'table-striped',
+            'crm-sticky-header',
           ],
           'toolbar' => [
             [
@@ -184,7 +191,7 @@ return [
               'action' => 'add',
               'target' => 'crm-popup',
               'style' => 'primary',
-              'text' => E::ts('Add Mail Account'),
+              'text' => 'Add Mail Account',
               'icon' => 'fa-plus',
             ],
           ],

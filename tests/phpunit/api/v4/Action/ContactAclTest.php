@@ -20,11 +20,13 @@
 namespace api\v4\Action;
 
 use api\v4\Api4TestBase;
+use Civi\Api4\Activity;
 use Civi\Api4\Contact;
 use Civi\Api4\Email;
 use Civi\Api4\Individual;
 use Civi\Api4\LocationType;
 use Civi\Api4\Organization;
+use Civi\Api4\Phone;
 use Civi\Core\HookInterface;
 use Civi\Test\TransactionalInterface;
 
@@ -77,12 +79,22 @@ class ContactAclTest extends Api4TestBase implements TransactionalInterface, Hoo
   public function testContactAclForRelatedEntity(): void {
     $cid = $this->saveTestRecords('Individual', ['records' => 4])
       ->column('id');
+
     $email = $this->saveTestRecords('Email', [
       'records' => [
         ['contact_id' => $cid[0], 'email' => '0@test'],
         ['contact_id' => $cid[1], 'email' => '1@test'],
         ['contact_id' => $cid[2], 'email' => '2@test'],
         ['contact_id' => $cid[3], 'email' => '3@test'],
+      ],
+    ])->column('id');
+
+    $activity = $this->saveTestRecords('Activity', [
+      'records' => [
+        ['source_contact_id' => $cid[0], 'subject' => '0test'],
+        ['source_contact_id' => $cid[1], 'subject' => '1test'],
+        ['source_contact_id' => $cid[2], 'subject' => '2test'],
+        ['source_contact_id' => $cid[3], 'subject' => '3test'],
       ],
     ])->column('id');
     // Grant access to all but contact 0
@@ -96,6 +108,34 @@ class ContactAclTest extends Api4TestBase implements TransactionalInterface, Hoo
     $this->assertEquals(array_slice($email, 1), $allowedEmails->column('id'));
     // ACL clause should have been inserted once
     $this->assertEquals(1, substr_count($allowedEmails->debug['sql'][0], 'civicrm_acl_contact_cache'));
+
+    $allowedActivities = Activity::get()->setDebug(TRUE)
+      ->execute();
+    $this->assertCount(3, $allowedActivities);
+    $this->assertEquals(array_slice($activity, 1), $allowedActivities->column('id'));
+    // ACL clause should have been inserted once
+    $this->assertEquals(1, substr_count($allowedActivities->debug['sql'][0], 'civicrm_acl_contact_cache'));
+
+    $error = NULL;
+    try {
+      Phone::create()
+        ->setValues(['contact_id' => $cid[0], 'phone' => '1234567890'])
+        ->execute();
+    }
+    catch (\Exception $e) {
+      $error = $e->getMessage();
+    }
+    $this->assertEquals('ACL check failed', $error);
+
+    $result = Phone::create()
+      ->setValues(['contact_id' => $cid[1], 'phone' => '1234567890'])
+      ->execute();
+    $this->assertCount(1, $result);
+
+    $result = Phone::get()
+      ->addWhere('contact_id', '=', $cid[1])
+      ->execute();
+    $this->assertCount(1, $result);
   }
 
   public function testContactAclClauseDedupe(): void {
